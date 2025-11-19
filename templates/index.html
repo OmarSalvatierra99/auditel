@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auditel - Análisis Normativo Inteligente de Auditoría</title>
-    <meta name="description" content="Sistema especializado en análisis normativo automático para auditorías">
+    <title>Auditel | Sistema de Análisis Normativo Inteligente</title>
+    <meta name="description" content="Plataforma especializada en análisis normativo automático para auditorías públicas">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -13,33 +13,29 @@
         <!-- Barra lateral mejorada -->
         <div class="sidebar">
             <div class="sidebar-header">
-                <h2>⚖️ Auditel</h2>
-                <p class="sidebar-subtitle">Asistente Normativo</p>
+                <h2>Auditel</h2>
+                <p class="sidebar-subtitle">Sistema de Análisis Normativo</p>
             </div>
-            
+
             <div class="sidebar-section">
-                <h3>🔍 Modos de Análisis</h3>
+                <h3>Módulos de Análisis</h3>
                 <button class="sidebar-button active" data-mode="normativo">
-                    <span class="button-icon">⚖️</span>
-                    <span class="button-text">Análisis normativo</span>
+                    <span class="button-icon">▸</span>
+                    <span class="button-text">Análisis Normativo</span>
                 </button>
                 <button class="sidebar-button" data-mode="sugerencias" onclick="mostrarMensajeDesarrollo()">
-                    <span class="button-icon">📋</span>
-                    <span class="button-text">Sugerencias de auditoría</span>
-                    <span class="badge">Próximamente</span>
+                    <span class="button-icon">▸</span>
+                    <span class="button-text">Planeación de Auditoría</span>
+                    <span class="badge">Próximo</span>
                 </button>
             </div>
 
             <div class="sidebar-section">
-                <h3>📊 Bases de Datos</h3>
+                <h3>Bases de Consulta</h3>
                 {% for auditoria, stats in estadisticas.items() %}
                 <div class="database-info">
                     <div class="db-header">
-                        <span class="db-icon">
-                            {% if auditoria == 'Obra Pública' %}🏗️
-                            {% elif auditoria == 'Financiera' %}💰
-                            {% else %}📁{% endif %}
-                        </span>
+                        <span class="db-icon">●</span>
                         <span class="db-name">{{ auditoria }}</span>
                     </div>
                     <div class="db-stats">
@@ -53,9 +49,9 @@
             <div class="sidebar-footer">
                 <div class="system-status">
                     <div class="status-indicator active"></div>
-                    <span>Sistema operativo</span>
+                    <span>Sistema activo</span>
                 </div>
-                <div class="version">v2.0.0</div>
+                <div class="version">v3.0.0</div>
             </div>
         </div>
 
@@ -63,14 +59,14 @@
         <div class="content-area">
             <div class="top-bar">
                 <div class="top-bar-left">
-                    <h1>🔍 Auditel - Análisis Normativo Inteligente</h1>
-                    <p class="top-bar-subtitle">Sistema especializado en detección automática de normativas aplicables</p>
+                    <h1>Análisis Normativo Inteligente</h1>
+                    <p class="top-bar-subtitle">Sistema de consulta automática de normativas aplicables</p>
                 </div>
                 <div class="top-bar-right">
                     <form action="{{ url_for('clear') }}" method="post" class="clear-form">
-                        <button type="submit" class="clear-button" title="Comenzar nueva sesión">
-                            <span class="button-icon">🔄</span>
-                            Nueva sesión
+                        <button type="submit" class="clear-button" title="Iniciar nueva sesión">
+                            <span class="button-icon">↻</span>
+                            Nueva Sesión
                         </button>
                     </form>
                 </div>
@@ -80,7 +76,7 @@
                 <div class="chat-box" id="chat-box">
                     <!-- Disclaimer integrado en el chat -->
                     <div class="disclaimer-message">
-                        <p><span class="warning-icon">⚠️</span> <strong>Importante:</strong> La información mostrada es generada automáticamente y debe ser verificada. No integra normativa interna específica, reglas de operación y convenios.</p>
+                        <p><strong>Aviso:</strong> La información proporcionada es generada automáticamente y debe ser verificada. No incluye normativa interna específica, reglas de operación ni convenios particulares.</p>
                     </div>
 
                     {% if chat_history %}
@@ -110,36 +106,36 @@
                     {% else %}
                         <div class="welcome-message">
                             <div class="welcome-header">
-                                <h3>💬 Bienvenido a Auditel v2.0</h3>
-                                <p>Tu asistente especializado en análisis normativo inteligente de auditoría</p>
+                                <h3>Bienvenido a Auditel</h3>
+                                <p>Sistema especializado en análisis normativo para auditorías públicas</p>
                             </div>
                             <div class="welcome-features">
                                 <div class="feature-card">
-                                    <div class="feature-icon">⚖️</div>
+                                    <div class="feature-icon">▸</div>
                                     <div class="feature-text">
-                                        <strong>Análisis normativo automático</strong>
-                                        <span>Detección inteligente de regulaciones aplicables</span>
+                                        <strong>Análisis Automático</strong>
+                                        <span>Detección inteligente de normativas aplicables</span>
                                     </div>
                                 </div>
                                 <div class="feature-card">
-                                    <div class="feature-icon">🔍</div>
+                                    <div class="feature-icon">▸</div>
                                     <div class="feature-text">
-                                        <strong>Búsqueda semántica avanzada</strong>
-                                        <span>Motor de búsqueda por similitud conceptual</span>
+                                        <strong>Búsqueda Semántica</strong>
+                                        <span>Motor avanzado de similitud conceptual</span>
                                     </div>
                                 </div>
                                 <div class="feature-card">
-                                    <div class="feature-icon">📋</div>
+                                    <div class="feature-icon">▸</div>
                                     <div class="feature-text">
-                                        <strong>Base de datos normativa</strong>
-                                        <span>Actualizada con legislación mexicana vigente</span>
+                                        <strong>Base Normativa</strong>
+                                        <span>Legislación mexicana actualizada</span>
                                     </div>
                                 </div>
                                 <div class="feature-card">
-                                    <div class="feature-icon">🎯</div>
+                                    <div class="feature-icon">▸</div>
                                     <div class="feature-text">
-                                        <strong>Detección de patrones</strong>
-                                        <span>Identificación automática de temas relevantes</span>
+                                        <strong>Consulta Especializada</strong>
+                                        <span>Análisis por tipo de auditoría</span>
                                     </div>
                                 </div>
                             </div>
@@ -150,11 +146,11 @@
                                 </div>
                                 <div class="stat">
                                     <strong>{{ estadisticas|length }}</strong>
-                                    <span>Auditorías disponibles</span>
+                                    <span>Tipos de auditoría</span>
                                 </div>
                                 <div class="stat">
-                                    <strong>v2.0</strong>
-                                    <span>Motor mejorado</span>
+                                    <strong>v3.0</strong>
+                                    <span>Versión actual</span>
                                 </div>
                             </div>
                         </div>
@@ -177,12 +173,12 @@
                         </div>
                         <div class="input-footer">
                             <div class="ai-indicator">
-                                <span class="ai-badge">🤖 IA</span>
-                                <span>Análisis normativo inteligente • Búsqueda semántica</span>
+                                <span class="ai-badge">IA</span>
+                                <span>Análisis inteligente con búsqueda semántica</span>
                             </div>
                             <div class="input-hints">
-                                <span class="hint">💡 <strong>Consejos:</strong> Sé específico • Usa términos técnicos • Incluye contextos</span>
-                                <span class="hint">⌨️ <strong>Atajos:</strong> Enter para enviar • Shift+Enter para nueva línea</span>
+                                <span class="hint"><strong>Sugerencia:</strong> Utiliza términos técnicos específicos para mejores resultados</span>
+                                <span class="hint"><strong>Atajos:</strong> Enter = enviar | Shift+Enter = nueva línea</span>
                             </div>
                         </div>
                     </form>
@@ -195,15 +191,16 @@
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 
     <script>
-        // Configuración global mejorada
+        // Configuración global
         window.auditelConfig = {
-            version: '2.0.0',
+            version: '3.0.0',
             maxQuestionLength: 2000,
             supportedAuditorias: {{ auditorias_config|tojson }},
             features: {
                 semanticSearch: true,
                 patternDetection: true,
-                realTimeValidation: true
+                realTimeValidation: true,
+                webScraping: true
             }
         };
 
@@ -213,20 +210,20 @@
             mensaje.className = 'chat-message bot';
             mensaje.innerHTML = `
                 <div class="message-header">
-                    <span class="message-avatar">🔍</span>
+                    <span class="message-avatar">▸</span>
                     <span class="message-sender">Auditel</span>
                     <span class="message-time">${new Date().toLocaleTimeString()}</span>
                 </div>
                 <div class="message-content">
                     <div class="feature-coming-soon">
-                        <p>🚧 <strong>Sugerencias de Auditoría - En Desarrollo</strong></p>
-                        <p>Esta funcionalidad estará disponible en la próxima actualización.</p>
+                        <p><strong>Módulo de Planeación - En Desarrollo</strong></p>
+                        <p>Este módulo estará disponible próximamente con las siguientes funcionalidades:</p>
                         <div class="coming-features">
-                            <div class="feature-item">• Generación automática de programas de auditoría</div>
-                            <div class="feature-item">• Detección de riesgos específicos</div>
-                            <div class="feature-item">• Recomendaciones de procedimientos</div>
+                            <div class="feature-item">▸ Generación automática de programas de auditoría</div>
+                            <div class="feature-item">▸ Análisis y detección de riesgos</div>
+                            <div class="feature-item">▸ Recomendaciones de procedimientos específicos</div>
                         </div>
-                        <p>Por ahora, puedes usar el <strong>Modo de Análisis Normativo</strong> para consultar regulaciones aplicables.</p>
+                        <p>Actualmente puede utilizar el <strong>Módulo de Análisis Normativo</strong> para consultar regulaciones aplicables.</p>
                     </div>
                 </div>
             `;
@@ -267,8 +264,8 @@
                 mainContainer.setAttribute('aria-label', 'Sistema de análisis normativo Auditel');
             }
 
-            console.log('🔍 Auditel v2.0 inicializado correctamente');
-            console.log('📊 Configuración:', window.auditelConfig);
+            console.log('Auditel v3.0 - Sistema inicializado');
+            console.log('Configuración:', window.auditelConfig);
         });
     </script>
 </body>

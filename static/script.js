@@ -1,4 +1,5 @@
-// static/script.js - VERSIÓN MEJORADA CON MARKDOWN Y BÚSQUEDA EN INTERNET
+// Auditel v3.0 - Sistema de Análisis Normativo
+// Script principal con búsqueda semántica y análisis inteligente
 document.addEventListener("DOMContentLoaded", function() {
     // === CONFIGURACIÓN INICIAL ===
     const askForm = document.getElementById("ask-form");
@@ -194,7 +195,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
         botMessageDiv.innerHTML = `
             <div class="message-header">
-                <span class="message-avatar">🔍</span>
+                <span class="message-avatar">▸</span>
                 <span class="message-sender">Auditel</span>
                 <span class="message-time">${timestamp}</span>
             </div>
@@ -218,8 +219,8 @@ document.addEventListener("DOMContentLoaded", function() {
 
         userMessageDiv.innerHTML = `
             <div class="message-header">
-                <span class="message-avatar">👤</span>
-                <span class="message-sender">Tú</span>
+                <span class="message-avatar">●</span>
+                <span class="message-sender">Usuario</span>
                 <span class="message-time">${timestamp}</span>
             </div>
             <div class="message-content">${escapeHtml(messageText)}</div>
@@ -278,17 +279,17 @@ document.addEventListener("DOMContentLoaded", function() {
 
         if (value === 'Financiera') {
             const entePrompt = showBotMessage(`
-                <p>💰 <strong>Auditoría Financiera seleccionada</strong></p>
+                <p><strong>Auditoría Financiera</strong></p>
                 <p>${descripciones[value]}</p>
-                <p>Para brindarte respuestas más precisas, selecciona el tipo de ente:</p>
+                <p>Seleccione el tipo de ente para análisis más preciso:</p>
             `, null, false);
 
             const enteButtons = createSelectionButtons(
                 [
-                    { text: '🏛️ Ente Autónomo', value: 'Autónomo' },
-                    { text: '🏢 Paraestatal/Descentralizada', value: 'Paraestatal' },
-                    { text: '📊 Centralizada', value: 'Centralizada' },
-                    { text: '❓ No especificar', value: 'No especificado' }
+                    { text: 'Ente Autónomo', value: 'Autónomo' },
+                    { text: 'Paraestatal/Descentralizada', value: 'Paraestatal' },
+                    { text: 'Centralizada', value: 'Centralizada' },
+                    { text: 'No especificar', value: 'No especificado' }
                 ],
                 handleEnteSelection
             );
@@ -315,22 +316,22 @@ document.addEventListener("DOMContentLoaded", function() {
 
         showBotMessage(`
             <div class="detection-badge">
-                ✅ <strong>¡Configuración completada!</strong>
+                <strong>Configuración Completada</strong>
             </div>
-            <p>Ahora puedo ayudarte con <strong>análisis normativo automático</strong>:</p>
+            <p>Sistema listo para análisis normativo automático:</p>
             <ul>
-                <li>⚖️ <strong>Detección automática</strong> de normativas aplicables</li>
-                <li>📋 <strong>Listado estructurado</strong> de regulaciones relevantes</li>
-                <li>🔍 <strong>Búsqueda inteligente</strong> en base de datos normativa</li>
-                <li>🌐 <strong>Búsqueda en internet</strong> de normativas actualizadas</li>
-                <li>🎯 <strong>Especializado en:</strong> ${descripcion}</li>
+                <li><strong>Detección automática</strong> de normativas aplicables</li>
+                <li><strong>Análisis estructurado</strong> de regulaciones relevantes</li>
+                <li><strong>Búsqueda semántica</strong> en bases de datos normativas</li>
+                <li><strong>Consulta web</strong> de normativas actualizadas</li>
+                <li><strong>Especialización:</strong> ${descripcion}</li>
             </ul>
             <div class="context-info">
-                <strong>Contexto configurado:</strong><br>
-                🏛️ <strong>Auditoría:</strong> ${conversationState.auditoria}<br>
-                ${conversationState.ente ? `📋 <strong>Ente:</strong> ${conversationState.ente}` : ''}
+                <strong>Contexto del análisis:</strong><br>
+                <strong>Tipo de auditoría:</strong> ${conversationState.auditoria}<br>
+                ${conversationState.ente ? `<strong>Tipo de ente:</strong> ${conversationState.ente}` : ''}
             </div>
-            <p>Escribe tu consulta y analizaré automáticamente las normativas aplicables.</p>
+            <p>Ingrese su consulta para iniciar el análisis de normativas aplicables.</p>
         `, null, false);
 
         questionTextarea.style.display = 'block';
@@ -352,19 +353,19 @@ document.addEventListener("DOMContentLoaded", function() {
         };
 
         let html = '<div class="internet-search">';
-        html += '<h4>🔍 Búsquedas Sugeridas en Internet</h4>';
-        html += '<p>Para información más actualizada, puedes consultar estas fuentes oficiales:</p>';
+        html += '<h4>Búsquedas Complementarias</h4>';
+        html += '<p>Consulte estas fuentes oficiales para información actualizada:</p>';
         html += '<div class="search-links">';
 
         for (const [nombre, url] of Object.entries(enlaces)) {
             html += `<a href="${url}" target="_blank" rel="noopener noreferrer" class="search-link">
-                        <span class="search-icon">🌐</span>
+                        <span class="search-icon">▸</span>
                         <span>${nombre}</span>
                      </a>`;
         }
 
         html += '</div>';
-        html += '<p class="search-note">💡 <em>Estos enlaces te llevarán a fuentes oficiales para verificar la normativa más actualizada</em></p>';
+        html += '<p class="search-note">Los enlaces le redirigirán a fuentes oficiales para verificar normativa actualizada</p>';
         html += '</div>';
 
         return html;
@@ -398,10 +399,10 @@ document.addEventListener("DOMContentLoaded", function() {
 
         const loadingMessageDiv = showBotMessage(`
             <div class="loading-message">
-                <p>🔍 <strong>Analizando normativas aplicables...</strong></p>
+                <p><strong>Procesando análisis normativo...</strong></p>
                 <div class="loading-spinner"></div>
-                <p><small>Buscando regulaciones relevantes en ${conversationState.auditoria}</small></p>
-                <p><small>Consultando bases de datos y generando enlaces de búsqueda</small></p>
+                <p><small>Consultando base de datos: ${conversationState.auditoria}</small></p>
+                <p><small>Aplicando búsqueda semántica y generando resultados</small></p>
             </div>
         `, null, false);
 
@@ -522,9 +523,9 @@ document.addEventListener("DOMContentLoaded", function() {
         } else {
             let mensajeError = `
                 <div class="error-message">
-                    <p>❌ <strong>Error en el análisis</strong></p>
-                    <p>${data.message || 'Error desconocido al procesar tu consulta.'}</p>
-                    <p><small>Por favor, intenta nuevamente o reformula tu pregunta.</small></p>
+                    <p><strong>Error en el procesamiento</strong></p>
+                    <p>${data.message || 'Error desconocido al procesar la consulta.'}</p>
+                    <p><small>Intente nuevamente o reformule su pregunta.</small></p>
                 </div>
             `;
 
@@ -541,33 +542,33 @@ document.addEventListener("DOMContentLoaded", function() {
         if (error.name === 'AbortError') {
             mensajeError = `
                 <div class="error-message">
-                    <p>⏰ <strong>Tiempo de espera agotado</strong></p>
+                    <p><strong>Tiempo de espera agotado</strong></p>
                     <p>El análisis está tomando más tiempo de lo esperado.</p>
-                    <p><small>Puedes intentar con una consulta más específica o usar los enlaces de búsqueda directa.</small></p>
+                    <p><small>Intente con una consulta más específica o use los enlaces de búsqueda directa.</small></p>
                 </div>
             `;
         } else if (error.message.includes('servidor') || error.message.includes('HTTP 5')) {
             mensajeError = `
                 <div class="error-message">
-                    <p>🔧 <strong>Error del servidor</strong></p>
-                    <p>Estamos experimentando problemas técnicos.</p>
-                    <p><small>Puedes usar los enlaces de búsqueda directa mientras resolvemos el problema.</small></p>
+                    <p><strong>Error del servidor</strong></p>
+                    <p>El sistema está experimentando problemas técnicos.</p>
+                    <p><small>Use los enlaces de búsqueda directa mientras se resuelve el problema.</small></p>
                 </div>
             `;
         } else if (error.message.includes('HTTP 4')) {
             mensajeError = `
                 <div class="error-message">
-                    <p>📝 <strong>Error en la solicitud</strong></p>
-                    <p>Verifica que tu consulta esté bien formulada.</p>
-                    <p><small>Intenta reformular tu pregunta o verifica la conexión.</small></p>
+                    <p><strong>Error en la solicitud</strong></p>
+                    <p>Verifique que la consulta esté correctamente formulada.</p>
+                    <p><small>Intente reformular la pregunta o verifique la conexión.</small></p>
                 </div>
             `;
         } else {
             mensajeError = `
                 <div class="error-message">
-                    <p>🌐 <strong>Error de conexión</strong></p>
-                    <p>Verifica tu conexión a internet e intenta nuevamente.</p>
-                    <p><small>Si el problema persiste, contacta al administrador.</small></p>
+                    <p><strong>Error de conexión</strong></p>
+                    <p>Verifique su conexión a internet e intente nuevamente.</p>
+                    <p><small>Si el problema persiste, contacte al administrador del sistema.</small></p>
                 </div>
             `;
         }
@@ -607,19 +608,18 @@ document.addEventListener("DOMContentLoaded", function() {
             disclaimer.style.display = 'block';
         }
 
-        // ✅ CORRECCIÓN: Mensaje de bienvenida con HTML directo (sin markdown)
         const auditoriaPrompt = showBotMessage(`
             <div class="welcome-header">
-                <h3>👋 ¡Hola! Soy <strong>Auditel</strong></h3>
-                <p>Tu asistente especializado en <strong>análisis normativo de auditoría</strong></p>
+                <h3>Sistema Auditel</h3>
+                <p>Análisis normativo especializado para auditorías públicas</p>
             </div>
-            <p>Para realizar un análisis preciso de las normativas aplicables, por favor selecciona el tipo de auditoría:</p>
+            <p>Seleccione el tipo de auditoría para iniciar el análisis de normativas aplicables:</p>
         `, null, false);
 
         const auditoriaButtons = createSelectionButtons(
             [
-                { text: '🏗️ Obra Pública', value: 'Obra Pública' },
-                { text: '💰 Financiera', value: 'Financiera' }
+                { text: 'Obra Pública', value: 'Obra Pública' },
+                { text: 'Financiera', value: 'Financiera' }
             ],
             handleAuditoriaSelection
         );
@@ -645,7 +645,7 @@ document.addEventListener("DOMContentLoaded", function() {
     // Inicializar la aplicación
     inicializarAplicacion();
 
-    // === CONSOLA DE DESARROLLO ===
-    console.log('🔍 Auditel v2.1 inicializado correctamente');
-    console.log('📊 Configuración:', window.auditelConfig || 'No disponible');
+    // === INICIALIZACIÓN ===
+    console.log('Auditel v3.0 - Sistema inicializado correctamente');
+    console.log('Configuración:', window.auditelConfig || 'No disponible');
 });
