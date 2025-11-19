@@ -10,6 +10,7 @@ __pycache__/
 
 # Archivos de logs
 *.log
+logs/
 
 # Archivos de base de datos temporal (si aplica)
 *.sqlite3
@@ -17,6 +18,10 @@ __pycache__/
 # Archivos subidos y generados
 uploads/
 text_files/
+
+# Caché de web scraping
+cache_data/
+cache_data_test/
 
 # Archivos de configuración locales
 *.env
