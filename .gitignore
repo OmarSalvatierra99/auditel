@@ -1,46 +1,78 @@
-# Entorno virtual
-venv/
-.env
-
-# Archivos compilados de Python
+# Byte-compiled / cache
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 
-# Archivos de logs
-*.log
-logs/
+# AI agent files
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.cursorrules
+.cursor/
+.aider*
 
-# Archivos de base de datos temporal (si aplica)
+# Virtual environment
+venv/
+.env/
+.env.bak/
+.venv/
+env/
+
+# Flask cache and instance data
+instance/
+*.db
 *.sqlite3
+*.sqlite
+*.log
+*.pid
+*.swp
 
-# Archivos subidos y generados
-uploads/
-text_files/
-
-# Caché de web scraping
-cache_data/
-cache_data_test/
-
-# Archivos de configuración locales
+# Environment variables
 *.env
-*.config
-*.ini
+.env.*
+!.env.example
 
-# Sistema y editores
+# OS junk
 .DS_Store
 Thumbs.db
-.idea/
+.AppleDouble
+.LSOverride
+
+# Editor / IDE
 .vscode/
-*.swp
-*.swo
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
 
-# Cachés de navegador o temporales
-*.tmp
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# Backup files
+*~
 *.bak
-*.old
 
-# Archivos estáticos y compilados si no se quieren versionar
-static/*.map
+# Temporary files
+/tmp/
+temp/
+*.tmp
 
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Logs
+gunicorn.log
+*.log.*
+logs/
+
+# System files
+*.sock
+*.pid
+
+# Cache or compiled static assets
+static/css/*.map
+static/js/*.map
