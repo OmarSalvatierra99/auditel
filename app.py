@@ -973,7 +973,7 @@ if __name__ == "__main__":
         logger.info(f"💾 Cache inicializado: {cache_busqueda.estadisticas()}")
 
         debug_mode = os.getenv("FLASK_DEBUG", "False").lower() == "true"
-        app.run(host="0.0.0.0", port=5001, debug=debug_mode)
+        app.run(host="0.0.0.0", port=5003, debug=debug_mode)
     else:
         logger.error("❌ No se pudo iniciar la aplicación debido a errores de configuración")
         exit(1)
