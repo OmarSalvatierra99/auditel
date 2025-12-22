@@ -22,14 +22,19 @@ from dotenv import load_dotenv
 
 def configurar_logging_detallado():
     """Configura logging más detallado y estructurado"""
-    
+
+    # Ensure log directory exists
+    from pathlib import Path
+    log_dir = Path('log')
+    log_dir.mkdir(exist_ok=True)
+
     formatter = logging.Formatter(
         '%(asctime)s | %(name)s | %(levelname)-8s | %(message)s | [%(filename)s:%(lineno)d]'
     )
-    
+
     # Handler para archivo con rotación
     file_handler = RotatingFileHandler(
-        'auditel.log',
+        'log/auditel.log',
         maxBytes=10*1024*1024,  # 10MB
         backupCount=5,
         encoding='utf-8'
