@@ -15,6 +15,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
 from dotenv import load_dotenv
+from config import PORT
+from scripts.utils import AUDITORIA_DATA
 
 # =============================================================================
 # CONFIGURACIÓN MEJORADA DE LOGGING
@@ -34,7 +36,7 @@ def configurar_logging_detallado():
 
     # Handler para archivo con rotación
     file_handler = RotatingFileHandler(
-        'log/auditel.log',
+        'log/app.log',
         maxBytes=10*1024*1024,  # 10MB
         backupCount=5,
         encoding='utf-8'
@@ -211,7 +213,6 @@ AUDITORIA_CONFIG = {
     }
 }
 
-DATA_DIR = "data"
 DB_AUDITORIA = {}
 ESTADISTICAS_DB = {}
 
@@ -221,43 +222,37 @@ ESTADISTICAS_DB = {}
 
 def cargar_bases_datos():
     """Carga todas las bases de datos de auditorías de forma optimizada"""
-    if not os.path.exists(DATA_DIR):
-        logger.error(f"❌ Error: El directorio '{DATA_DIR}' no se encuentra.")
-        return {}, {}
-
     bases_cargadas = {}
     estadisticas = {}
 
     for auditoria_nombre, config in AUDITORIA_CONFIG.items():
-        file_path = os.path.join(DATA_DIR, config["archivo"])
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    datos = json.load(f)
-                    
-                    # Validar estructura básica
-                    if not isinstance(datos, list):
-                        logger.error(f"❌ Estructura inválida en {config['archivo']}: se esperaba lista")
-                        continue
-                        
-                    bases_cargadas[auditoria_nombre] = datos
+        try:
+            datos = AUDITORIA_DATA.get(auditoria_nombre)
+            if datos is None:
+                logger.error(f"❌ Archivo no encontrado: {config['archivo']}")
+                continue
 
-                    # Estadísticas detalladas
-                    estadisticas[auditoria_nombre] = {
-                        'registros': len(datos),
-                        'campos_normativas': config["campos_normativas"],
-                        'descripcion': config["descripcion"],
-                        'campos_por_registro': len(datos[0].keys()) if datos else 0
-                    }
+            # Validar estructura básica
+            if not isinstance(datos, list):
+                logger.error(f"❌ Estructura inválida en {config['archivo']}: se esperaba lista")
+                continue
 
-                    logger.info(f"✅ {auditoria_nombre}: {len(datos)} registros - {config['descripcion']}")
+            bases_cargadas[auditoria_nombre] = datos
 
-            except json.JSONDecodeError as e:
-                logger.error(f"❌ Error JSON en {config['archivo']}: {e}")
-            except Exception as e:
-                logger.error(f"❌ Error al leer {config['archivo']}: {e}")
-        else:
-            logger.error(f"❌ Archivo no encontrado: {file_path}")
+            # Estadísticas detalladas
+            estadisticas[auditoria_nombre] = {
+                'registros': len(datos),
+                'campos_normativas': config["campos_normativas"],
+                'descripcion': config["descripcion"],
+                'campos_por_registro': len(datos[0].keys()) if datos else 0
+            }
+
+            logger.info(f"✅ {auditoria_nombre}: {len(datos)} registros - {config['descripcion']}")
+
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Error JSON en {config['archivo']}: {e}")
+        except Exception as e:
+            logger.error(f"❌ Error al leer {config['archivo']}: {e}")
 
     logger.info(f"📊 Resumen carga: {len(bases_cargadas)} auditorías cargadas")
     return bases_cargadas, estadisticas
@@ -978,7 +973,7 @@ if __name__ == "__main__":
         logger.info(f"💾 Cache inicializado: {cache_busqueda.estadisticas()}")
 
         debug_mode = os.getenv("FLASK_DEBUG", "False").lower() == "true"
-        app.run(host="0.0.0.0", port=5003, debug=debug_mode)
+        app.run(host="0.0.0.0", port=PORT, debug=debug_mode)
     else:
         logger.error("❌ No se pudo iniciar la aplicación debido a errores de configuración")
         exit(1)
