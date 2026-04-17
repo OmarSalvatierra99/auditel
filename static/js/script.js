@@ -171,6 +171,35 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // === MANEJO DE MENSAJES MEJORADO ===
+    function normalizeMultilineText(text) {
+        if (typeof text !== 'string') {
+            return text;
+        }
+
+        const lines = text.replace(/\r\n/g, '\n').split('\n');
+        let minIndent = Infinity;
+
+        for (const line of lines) {
+            if (!line.trim()) {
+                continue;
+            }
+
+            const indent = line.match(/^\s*/)[0].length;
+            if (indent < minIndent) {
+                minIndent = indent;
+            }
+        }
+
+        if (!isFinite(minIndent)) {
+            return text.trim();
+        }
+
+        return lines
+            .map(line => line.trim() ? line.slice(minIndent) : '')
+            .join('\n')
+            .trim();
+    }
+
     function showBotMessage(messageHtml, context = null, isMarkdown = false) {
         const botMessageDiv = document.createElement("div");
         botMessageDiv.className = "chat-message bot";
@@ -180,15 +209,15 @@ document.addEventListener("DOMContentLoaded", function() {
             minute: '2-digit'
         });
 
-        let contenidoHTML = messageHtml;
+        let contenidoHTML = normalizeMultilineText(messageHtml);
         
         // ✅ CORRECCIÓN: Procesar Markdown solo si es necesario
         if (isMarkdown && typeof marked !== 'undefined') {
             try {
-                contenidoHTML = marked.parse(messageHtml);
+                contenidoHTML = marked.parse(contenidoHTML);
             } catch (error) {
                 console.error('Error procesando markdown:', error);
-                contenidoHTML = messageHtml;
+                contenidoHTML = normalizeMultilineText(messageHtml);
             }
         }
 

@@ -4,7 +4,7 @@ import re
 import logging
 import hashlib
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from logging.handlers import RotatingFileHandler
 
@@ -15,8 +15,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
 from dotenv import load_dotenv
+
+# Cargar variables de entorno ANTES de Config para que os.getenv() las encuentre
+load_dotenv()
+
 from config import PORT
 from scripts.utils import AUDITORIA_DATA
+from scripts.auth import (
+    authenticate,
+    get_authorized_users,
+    get_canonical_username,
+    get_user_display_name,
+    is_authenticated,
+    login_required,
+)
 
 # =============================================================================
 # CONFIGURACIÓN MEJORADA DE LOGGING
@@ -27,7 +39,7 @@ def configurar_logging_detallado():
 
     # Ensure log directory exists
     from pathlib import Path
-    log_dir = Path('log')
+    log_dir = Path('logs')
     log_dir.mkdir(exist_ok=True)
 
     formatter = logging.Formatter(
@@ -36,7 +48,7 @@ def configurar_logging_detallado():
 
     # Handler para archivo con rotación
     file_handler = RotatingFileHandler(
-        'log/app.log',
+        'logs/app.log',
         maxBytes=10*1024*1024,  # 10MB
         backupCount=5,
         encoding='utf-8'
@@ -69,7 +81,7 @@ class Config:
     """Configuración centralizada de la aplicación"""
     
     # Seguridad
-    SECRET_KEY = os.getenv("SECRET_KEY", "clave-secreta-por-defecto-cambiar-en-produccion")
+    SECRET_KEY = os.getenv("SECRET_KEY")
     SESSION_TIMEOUT = 60 * 60  # 1 hora en segundos
     
     # Límites
@@ -87,11 +99,9 @@ class Config:
     SIMILARITY_THRESHOLD = 0.1
     TOP_N_RESULTS = 6
 
-# Cargar variables de entorno
-load_dotenv()
-
 app = Flask(__name__)
 app.secret_key = Config.SECRET_KEY
+app.permanent_session_lifetime = timedelta(seconds=Config.SESSION_TIMEOUT)
 
 # Configuración de Flask
 app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
@@ -488,6 +498,14 @@ def set_chat_history(history, max_mensajes=Config.CHAT_HISTORY_LIMIT):
     session["chat_history"] = history
     session.modified = True
 
+
+def _safe_next_url(raw_url):
+    """Valida redirecciones internas para evitar saltos externos."""
+    candidate_url = str(raw_url or "").strip()
+    if not candidate_url.startswith("/") or candidate_url.startswith("//"):
+        return ""
+    return candidate_url
+
 # =============================================================================
 # FUNCIONES DE BÚSQUEDA Y ANÁLISIS MEJORADAS
 # =============================================================================
@@ -752,7 +770,65 @@ app.jinja_env.filters['sum_attribute'] = sum_attribute
 # RUTAS PRINCIPALES MEJORADAS
 # =============================================================================
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Pantalla de acceso institucional."""
+    next_url = _safe_next_url(request.values.get("next"))
+
+    if is_authenticated():
+        return redirect(next_url or url_for("index"))
+
+    usuarios_activos = get_authorized_users()
+    error = None
+    selected_username = ""
+    selected_display = "usuario"
+
+    if len(usuarios_activos) == 1 and request.method == "GET":
+        selected_username = usuarios_activos[0]["username"]
+        selected_display = usuarios_activos[0]["display_name"]
+
+    if request.method == "POST":
+        selected_username = (request.form.get("username") or "").strip()
+        selected_display = get_user_display_name(selected_username, fallback="usuario")
+        password = request.form.get("password", "")
+
+        if not usuarios_activos:
+            error = "No hay usuarios activos configurados."
+        elif not selected_username:
+            error = "Seleccione un usuario para continuar."
+        elif not authenticate(selected_username, password):
+            error = "Usuario o contraseña incorrectos."
+        else:
+            canonical_username = get_canonical_username(selected_username) or selected_username
+            session.clear()
+            session.permanent = True
+            session["usuario"] = canonical_username
+            session["auth_user"] = canonical_username
+            session["display_name"] = get_user_display_name(
+                canonical_username,
+                fallback=canonical_username,
+            )
+            return redirect(next_url or url_for("index"))
+
+    return render_template(
+        "login.html",
+        error=error,
+        usuarios_activos=usuarios_activos,
+        selected_username=selected_username,
+        selected_display=selected_display,
+        next_url=next_url,
+    )
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    """Cierra la sesión institucional activa."""
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/", methods=["GET"])
+@login_required
 def index():
     """Página principal con datos mejorados"""
     chat_history = get_chat_history()
@@ -764,6 +840,7 @@ def index():
     )
 
 @app.route("/ask", methods=["POST"])
+@login_required
 @requiere_configuracion
 @requiere_auditoria
 def ask():
@@ -862,10 +939,12 @@ def ask():
         }), 500
 
 @app.route("/clear", methods=["POST"])
+@login_required
 def clear():
     """Limpiar la sesión y comenzar de nuevo"""
     try:
-        session.clear()
+        session.pop("chat_history", None)
+        session.modified = True
         flash("🔄 Nueva sesión iniciada.", "success")
         logger.info("✅ Sesión limpiada correctamente")
     except Exception as e:
@@ -874,6 +953,7 @@ def clear():
 
     return redirect(url_for("index"))
 
+@app.route("/api/health", methods=["GET"])
 @app.route("/health", methods=["GET"])
 def health_check():
     """Endpoint de salud mejorado para monitoreo"""
@@ -891,6 +971,7 @@ def health_check():
     return jsonify(status)
 
 @app.route("/config", methods=["GET"])
+@login_required
 def get_config():
     """Endpoint para obtener configuración (útil para frontend)"""
     return jsonify({
@@ -904,6 +985,7 @@ def get_config():
     })
 
 @app.route("/metrics", methods=["GET"])
+@login_required
 def get_metrics():
     """Endpoint para métricas del sistema"""
     documentos_indexados = 0

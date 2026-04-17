@@ -24,4 +24,4 @@ pypdf2>=3.0.0
 # OpenAI (si se usa en el futuro)
 openai>=1.0.0
 
-
+pytest>=9.0
