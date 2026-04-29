@@ -1,521 +1,514 @@
-// static/script.js - VERSIÓN MEJORADA CON MARKDOWN Y BÚSQUEDA EN INTERNET
-document.addEventListener("DOMContentLoaded", function() {
-    // === CONFIGURACIÓN INICIAL ===
+document.addEventListener("DOMContentLoaded", function () {
     const askForm = document.getElementById("ask-form");
-    const chatBox = document.getElementById("chat-box");
-    const welcomeMessage = document.querySelector(".welcome-message");
-    const questionTextarea = askForm.querySelector('textarea[name="question"]');
-    const sendButton = askForm.querySelector('.send-button');
+    if (!askForm) {
+        return;
+    }
 
-    // Estado mejorado de la conversación
-    const conversationState = {
-        auditoria: null,
-        ente: null,
-        configuracionCompleta: false,
+    const chatBox = document.getElementById("chat-box");
+    const questionTextarea = askForm.querySelector('textarea[name="question"]');
+    const sendButton = askForm.querySelector(".send-button");
+    const welcomeMessage = chatBox.querySelector(".welcome-message");
+    const hiddenAuditoria = askForm.querySelector('input[name="auditoria"]');
+    const hiddenEnte = askForm.querySelector('input[name="ente"]');
+    const slashMenu = askForm.querySelector("#chatbot-slash-menu");
+    const contextChip = askForm.querySelector("#chatbot-context-chip");
+    const contextValue = askForm.querySelector("#chatbot-context-value");
+    const clearContextButton = askForm.querySelector("#chatbot-context-clear");
+    const chatbotConfig = window.chatbotConfig || {};
+    const botName = chatbotConfig.botName || "Chatbot";
+    const slashCommands = Array.isArray(chatbotConfig.slashCommands) ? chatbotConfig.slashCommands : [];
+
+    const state = {
         isProcessing: false,
-        messageCount: 0,
-        lastActivity: Date.now()
+        slashMenuOpen: false,
+        slashQuery: "",
+        slashIndex: 0,
+        selectedAuditoria: hiddenAuditoria?.value || chatbotConfig.defaultAuditoria || "auto",
     };
 
-    // === SISTEMA DE REINTENTOS INTELIGENTE ===
-    class SistemaReintentos {
-        constructor(maxReintentos = 2, delayBase = 1000) {
-            this.maxReintentos = maxReintentos;
-            this.delayBase = delayBase;
-        }
+    inicializar();
 
-        async ejecutarConReintento(operacion, descripcion) {
-            let ultimoError;
-            
-            for (let intento = 1; intento <= this.maxReintentos + 1; intento++) {
-                try {
-                    if (intento > 1) {
-                        console.log(`🔄 Reintento ${intento-1}/${this.maxReintentos} para: ${descripcion}`);
-                        await this.delay(this.delayBase * Math.pow(2, intento - 2));
-                    }
-                    
-                    return await operacion();
-                } catch (error) {
-                    ultimoError = error;
-                    console.warn(`Intento ${intento} falló:`, error);
-                    
-                    if (intento > this.maxReintentos) {
-                        break;
-                    }
-                }
-            }
-            
-            throw ultimoError;
-        }
+    function inicializar() {
+        configurarEventos();
+        crearContadorCaracteres();
+        actualizarEstadoEnvio();
+        ajustarAlturaTextarea();
+        renderizarContextoActivo();
+        scrollToBottom("auto");
 
-        delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
+        if (questionTextarea) {
+            questionTextarea.focus();
         }
     }
 
-    const reintentos = new SistemaReintentos();
+    function configurarEventos() {
+        askForm.addEventListener("submit", function (event) {
+            event.preventDefault();
 
-    // === INICIALIZACIÓN MEJORADA ===
-    function inicializarAplicacion() {
-        configurarMarkdown();
-        inicializarFormulario();
-        inicializarEventos();
-        inicializarValidacionTiempoReal();
-        inicializarDeteccionInactividad();
-        startConversation();
-    }
-
-    function configurarMarkdown() {
-        if (typeof marked !== 'undefined') {
-            marked.setOptions({
-                breaks: true,
-                gfm: true,
-                sanitize: false,
-                headerIds: true,
-                highlight: function(code, lang) {
-                    return code;
-                }
-            });
-        }
-    }
-
-    function inicializarFormulario() {
-        questionTextarea.style.display = 'none';
-        sendButton.style.display = 'none';
-        questionTextarea.disabled = true;
-        sendButton.disabled = true;
-        questionTextarea.value = '';
-
-        questionTextarea.style.height = '50px';
-        questionTextarea.style.minHeight = '50px';
-        questionTextarea.style.maxHeight = '120px';
-    }
-
-    function inicializarEventos() {
-        questionTextarea.addEventListener('input', function() {
-            this.style.height = 'auto';
-            const newHeight = Math.min(this.scrollHeight, 120);
-            this.style.height = newHeight + 'px';
-        });
-
-        questionTextarea.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (this.value.trim() && !conversationState.isProcessing) {
-                    enviarPregunta();
-                }
-            }
-
-            if (e.key === 'Enter' && e.ctrlKey) {
-                e.preventDefault();
-                if (this.value.trim() && !conversationState.isProcessing) {
-                    enviarPregunta();
-                }
+            if (!state.isProcessing) {
+                enviarPregunta();
             }
         });
 
-        questionTextarea.addEventListener('input', function() {
-            const tieneTexto = this.value.trim().length > 0;
-            sendButton.disabled = !tieneTexto || conversationState.isProcessing;
+        questionTextarea.addEventListener("input", function () {
+            ajustarAlturaTextarea();
             actualizarContadorCaracteres(this.value.length);
+            actualizarSlashCommands();
+            actualizarEstadoEnvio();
         });
 
-        // Eventos de actividad del usuario
-        const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-        events.forEach(event => {
-            document.addEventListener(event, () => {
-                conversationState.lastActivity = Date.now();
-            }, false);
+        questionTextarea.addEventListener("keydown", function (event) {
+            if (state.slashMenuOpen) {
+                if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    moverSlashIndex(1);
+                    return;
+                }
+
+                if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    moverSlashIndex(-1);
+                    return;
+                }
+
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    seleccionarSlashActivo();
+                    return;
+                }
+
+                if (event.key === "Escape") {
+                    cerrarSlashMenu();
+                    return;
+                }
+            }
+
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (!state.isProcessing && this.value.trim()) {
+                    enviarPregunta();
+                }
+            }
+        });
+
+        clearContextButton?.addEventListener("click", function () {
+            aplicarContextoAuditoria(chatbotConfig.defaultAuditoria || "auto");
+            questionTextarea.focus();
+        });
+
+        slashMenu?.addEventListener("click", function (event) {
+            const option = event.target.closest(".chatbot-slash-option");
+            if (!option) {
+                return;
+            }
+
+            aplicarSlashCommand(option.dataset.value);
+        });
+
+        document.addEventListener("click", function (event) {
+            if (!state.slashMenuOpen) {
+                return;
+            }
+
+            if (askForm.contains(event.target)) {
+                return;
+            }
+
+            cerrarSlashMenu();
+        });
+
+        document.addEventListener("visibilitychange", function () {
+            if (!document.hidden && questionTextarea && !state.isProcessing) {
+                questionTextarea.focus();
+            }
+        });
+
+        window.addEventListener("beforeunload", function (event) {
+            if (!state.isProcessing) {
+                return;
+            }
+
+            event.preventDefault();
+            event.returnValue = "Hay una consulta en proceso.";
+            return event.returnValue;
         });
     }
 
-    function inicializarValidacionTiempoReal() {
-        const contador = document.createElement('div');
-        contador.className = 'character-counter';
-        contador.textContent = '0/2000';
-        questionTextarea.parentNode.appendChild(contador);
+    function crearContadorCaracteres() {
+        if (askForm.querySelector(".character-counter")) {
+            return;
+        }
+
+        const counter = document.createElement("div");
+        counter.className = "character-counter";
+        counter.textContent = `0/${chatbotConfig.maxQuestionLength || 2000}`;
+        askForm.appendChild(counter);
     }
 
-    function inicializarDeteccionInactividad() {
-        setInterval(() => {
-            const tiempoInactivo = Date.now() - conversationState.lastActivity;
-            if (tiempoInactivo > 10 * 60 * 1000 && !conversationState.isProcessing) { // 10 minutos
-                mostrarAdvertenciaInactividad();
-            }
-        }, 60000); // Verificar cada minuto
-    }
+    function actualizarContadorCaracteres(length) {
+        const counter = askForm.querySelector(".character-counter");
+        if (!counter) {
+            return;
+        }
 
-    function mostrarAdvertenciaInactividad() {
-        const advertencia = showBotMessage(`
-            <div class="inactivity-warning">
-                <p>⏰ <strong>Sesión inactiva</strong></p>
-                <p>Tu sesión se cerrará automáticamente por inactividad.</p>
-                <p><small>Realiza una acción para mantener la sesión activa.</small></p>
-            </div>
-        `, null, true);
-    }
+        const maxLength = chatbotConfig.maxQuestionLength || 2000;
+        counter.textContent = `${length}/${maxLength}`;
 
-    function actualizarContadorCaracteres(longitud) {
-        const contador = document.querySelector('.character-counter');
-        if (contador) {
-            contador.textContent = `${longitud}/2000`;
-            
-            if (longitud > 1800) {
-                contador.style.color = '#ff6b6b';
-            } else if (longitud > 1500) {
-                contador.style.color = '#ffa500';
-            } else {
-                contador.style.color = '#666';
-            }
+        if (length > maxLength * 0.9) {
+            counter.classList.add("is-warning");
+        } else {
+            counter.classList.remove("is-warning");
         }
     }
 
-    // === MANEJO DE MENSAJES MEJORADO ===
-    function normalizeMultilineText(text) {
-        if (typeof text !== 'string') {
-            return text;
-        }
-
-        const lines = text.replace(/\r\n/g, '\n').split('\n');
-        let minIndent = Infinity;
-
-        for (const line of lines) {
-            if (!line.trim()) {
-                continue;
-            }
-
-            const indent = line.match(/^\s*/)[0].length;
-            if (indent < minIndent) {
-                minIndent = indent;
-            }
-        }
-
-        if (!isFinite(minIndent)) {
-            return text.trim();
-        }
-
-        return lines
-            .map(line => line.trim() ? line.slice(minIndent) : '')
-            .join('\n')
-            .trim();
+    function ajustarAlturaTextarea() {
+        questionTextarea.style.height = "auto";
+        questionTextarea.style.height = `${Math.min(questionTextarea.scrollHeight, 180)}px`;
     }
 
-    function showBotMessage(messageHtml, context = null, isMarkdown = false) {
-        const botMessageDiv = document.createElement("div");
-        botMessageDiv.className = "chat-message bot";
+    function actualizarEstadoEnvio() {
+        const hasText = Boolean(questionTextarea.value.trim());
+        sendButton.disabled = state.isProcessing || !hasText;
+    }
 
-        const timestamp = new Date().toLocaleTimeString('es-MX', {
-            hour: '2-digit',
-            minute: '2-digit'
+    function getSlashCommandsFiltrados() {
+        const query = (state.slashQuery || "").trim().toLowerCase();
+        if (!query) {
+            return slashCommands;
+        }
+
+        return slashCommands.filter(function (command) {
+            return [command.label, command.value, command.description].some(function (part) {
+                return typeof part === "string" && part.toLowerCase().includes(query);
+            });
+        });
+    }
+
+    function getSlashTriggerMatch() {
+        const cursorPosition = questionTextarea.selectionStart || 0;
+        const textBeforeCursor = questionTextarea.value.slice(0, cursorPosition);
+        return textBeforeCursor.match(/(^|\s)\/([^\s/]*)$/);
+    }
+
+    function actualizarSlashCommands() {
+        const match = getSlashTriggerMatch();
+        if (!match) {
+            cerrarSlashMenu();
+            return;
+        }
+
+        state.slashQuery = match[2] || "";
+        const commands = getSlashCommandsFiltrados();
+        if (!commands.length) {
+            cerrarSlashMenu();
+            return;
+        }
+
+        state.slashMenuOpen = true;
+        state.slashIndex = Math.min(state.slashIndex, commands.length - 1);
+        renderizarSlashMenu(commands);
+    }
+
+    function renderizarSlashMenu(commands) {
+        if (!slashMenu) {
+            return;
+        }
+
+        slashMenu.hidden = false;
+        slashMenu.innerHTML = commands.map(function (command, index) {
+            const isActive = index === state.slashIndex;
+            return `
+                <button
+                    type="button"
+                    class="chatbot-slash-option ${isActive ? "is-active" : ""}"
+                    data-value="${escapeHtml(command.value)}"
+                >
+                    <strong>/${escapeHtml(command.label)}</strong>
+                    <span>${escapeHtml(command.description || "")}</span>
+                </button>
+            `;
+        }).join("");
+    }
+
+    function cerrarSlashMenu() {
+        state.slashMenuOpen = false;
+        state.slashQuery = "";
+        state.slashIndex = 0;
+        if (slashMenu) {
+            slashMenu.hidden = true;
+            slashMenu.innerHTML = "";
+        }
+    }
+
+    function moverSlashIndex(direction) {
+        const commands = getSlashCommandsFiltrados();
+        if (!commands.length) {
+            return;
+        }
+
+        state.slashIndex = (state.slashIndex + direction + commands.length) % commands.length;
+        renderizarSlashMenu(commands);
+    }
+
+    function seleccionarSlashActivo() {
+        const commands = getSlashCommandsFiltrados();
+        const activeCommand = commands[state.slashIndex];
+        if (!activeCommand) {
+            return;
+        }
+
+        aplicarSlashCommand(activeCommand.value);
+    }
+
+    function aplicarSlashCommand(commandValue) {
+        const cursorPosition = questionTextarea.selectionStart || 0;
+        const textBeforeCursor = questionTextarea.value.slice(0, cursorPosition);
+        const textAfterCursor = questionTextarea.value.slice(cursorPosition);
+        const updatedBeforeCursor = textBeforeCursor.replace(/(^|\s)\/([^\s/]*)$/, "$1");
+        const nextValue = `${updatedBeforeCursor}${textAfterCursor}`.replace(/\s{2,}/g, " ").trimStart();
+
+        questionTextarea.value = nextValue;
+        aplicarContextoAuditoria(commandValue);
+        cerrarSlashMenu();
+        actualizarContadorCaracteres(questionTextarea.value.length);
+        actualizarEstadoEnvio();
+        ajustarAlturaTextarea();
+        questionTextarea.focus();
+    }
+
+    function aplicarContextoAuditoria(commandValue) {
+        state.selectedAuditoria = commandValue || chatbotConfig.defaultAuditoria || "auto";
+        if (hiddenAuditoria) {
+            hiddenAuditoria.value = state.selectedAuditoria;
+        }
+        renderizarContextoActivo();
+    }
+
+    function renderizarContextoActivo() {
+        if (!contextChip || !contextValue) {
+            return;
+        }
+
+        const defaultAuditoria = chatbotConfig.defaultAuditoria || "auto";
+        if (!state.selectedAuditoria || state.selectedAuditoria === defaultAuditoria) {
+            contextChip.hidden = true;
+            contextValue.textContent = "";
+            return;
+        }
+
+        const activeCommand = slashCommands.find(function (command) {
+            return command.value === state.selectedAuditoria;
         });
 
-        let contenidoHTML = normalizeMultilineText(messageHtml);
-        
-        // ✅ CORRECCIÓN: Procesar Markdown solo si es necesario
-        if (isMarkdown && typeof marked !== 'undefined') {
-            try {
-                contenidoHTML = marked.parse(contenidoHTML);
-            } catch (error) {
-                console.error('Error procesando markdown:', error);
-                contenidoHTML = normalizeMultilineText(messageHtml);
-            }
-        }
-
-        botMessageDiv.innerHTML = `
-            <div class="message-header">
-                <span class="message-avatar">🔍</span>
-                <span class="message-sender">Auditel</span>
-                <span class="message-time">${timestamp}</span>
-            </div>
-            <div class="message-content">${contenidoHTML}</div>
-            ${context ? `<div class="message-context">${context}</div>` : ''}
-        `;
-
-        chatBox.appendChild(botMessageDiv);
-        scrollToBottom();
-        return botMessageDiv;
-    }
-
-    function showUserMessage(messageText) {
-        const userMessageDiv = document.createElement("div");
-        userMessageDiv.className = "chat-message user";
-
-        const timestamp = new Date().toLocaleTimeString('es-MX', {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-
-        userMessageDiv.innerHTML = `
-            <div class="message-header">
-                <span class="message-avatar">👤</span>
-                <span class="message-sender">Tú</span>
-                <span class="message-time">${timestamp}</span>
-            </div>
-            <div class="message-content">${escapeHtml(messageText)}</div>
-        `;
-
-        chatBox.appendChild(userMessageDiv);
-        scrollToBottom();
-        conversationState.messageCount++;
-        conversationState.lastActivity = Date.now();
+        contextValue.textContent = activeCommand?.label || state.selectedAuditoria;
+        contextChip.hidden = false;
     }
 
     function escapeHtml(text) {
-        const div = document.createElement('div');
+        const div = document.createElement("div");
         div.textContent = text;
         return div.innerHTML;
     }
 
-    // === SISTEMA DE SELECCIÓN MEJORADO ===
-    function createSelectionButtons(options, onSelectCallback, compact = false) {
-        const buttonsContainer = document.createElement('div');
-        buttonsContainer.className = `selection-buttons ${compact ? 'compact' : ''}`;
+    function renderAssistantContent(content) {
+        const rawContent = typeof content === "string" ? content.trim() : "";
+        if (!rawContent) {
+            return "";
+        }
 
-        options.forEach(option => {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.textContent = option.text;
-            button.setAttribute('data-value', option.value);
-            button.setAttribute('aria-label', option.text);
+        if (rawContent.startsWith("<")) {
+            return rawContent;
+        }
 
-            button.addEventListener('click', (e) => {
-                e.preventDefault();
-                buttonsContainer.querySelectorAll('button').forEach(btn => {
-                    btn.disabled = true;
-                    btn.style.opacity = '0.6';
-                });
-                button.style.borderColor = 'var(--accent-color)';
-                button.style.background = 'rgba(0, 255, 200, 0.1)';
-                onSelectCallback(option.value, option.text);
-            });
+        return escapeHtml(rawContent).replace(/\n/g, "<br>");
+    }
 
-            buttonsContainer.appendChild(button);
+    function buildTimestamp() {
+        return new Date().toLocaleTimeString("es-MX", {
+            hour: "2-digit",
+            minute: "2-digit",
         });
-
-        return buttonsContainer;
     }
 
-    // === FLUJO DE CONVERSACIÓN MEJORADO ===
-    function handleAuditoriaSelection(value, text) {
-        showUserMessage(`Tipo de auditoría: ${text}`);
-        conversationState.auditoria = value;
-
-        const descripciones = {
-            'Obra Pública': 'Análisis de normativas de construcción, licitaciones y contratación pública',
-            'Financiera': 'Análisis de normativas contables, presupuestales y de control financiero'
-        };
-
-        if (value === 'Financiera') {
-            const entePrompt = showBotMessage(`
-                <p>💰 <strong>Auditoría Financiera seleccionada</strong></p>
-                <p>${descripciones[value]}</p>
-                <p>Para brindarte respuestas más precisas, selecciona el tipo de ente:</p>
-            `, null, false);
-
-            const enteButtons = createSelectionButtons(
-                [
-                    { text: '🏛️ Ente Autónomo', value: 'Autónomo' },
-                    { text: '🏢 Paraestatal/Descentralizada', value: 'Paraestatal' },
-                    { text: '📊 Centralizada', value: 'Centralizada' },
-                    { text: '❓ No especificar', value: 'No especificado' }
-                ],
-                handleEnteSelection
-            );
-            entePrompt.appendChild(enteButtons);
-        } else {
-            conversationState.ente = 'No aplica';
-            showQuestionForm(descripciones[value]);
+    function hideWelcomeMessage() {
+        if (welcomeMessage) {
+            welcomeMessage.remove();
         }
     }
 
-    function handleEnteSelection(value, text) {
-        showUserMessage(`Tipo de ente: ${text}`);
-        conversationState.ente = value;
+    function showUserMessage(messageText) {
+        hideWelcomeMessage();
 
-        const descripcion = conversationState.auditoria === 'Financiera'
-            ? 'Análisis de normativas contables, presupuestales y de control financiero'
-            : 'Análisis de normativas de construcción, licitaciones y contratación pública';
-
-        showQuestionForm(descripcion);
-    }
-
-    function showQuestionForm(descripcion) {
-        conversationState.configuracionCompleta = true;
-
-        showBotMessage(`
-            <div class="detection-badge">
-                ✅ <strong>¡Configuración completada!</strong>
+        const userMessage = document.createElement("div");
+        userMessage.className = "chat-message user";
+        userMessage.innerHTML = `
+            <div class="message-header">
+                <span class="message-avatar">TU</span>
+                <span class="message-sender">Tú</span>
+                <span class="message-time">${buildTimestamp()}</span>
             </div>
-            <p>Ahora puedo ayudarte con <strong>análisis normativo automático</strong>:</p>
-            <ul>
-                <li>⚖️ <strong>Detección automática</strong> de normativas aplicables</li>
-                <li>📋 <strong>Listado estructurado</strong> de regulaciones relevantes</li>
-                <li>🔍 <strong>Búsqueda inteligente</strong> en base de datos normativa</li>
-                <li>🌐 <strong>Búsqueda en internet</strong> de normativas actualizadas</li>
-                <li>🎯 <strong>Especializado en:</strong> ${descripcion}</li>
-            </ul>
-            <div class="context-info">
-                <strong>Contexto configurado:</strong><br>
-                🏛️ <strong>Auditoría:</strong> ${conversationState.auditoria}<br>
-                ${conversationState.ente ? `📋 <strong>Ente:</strong> ${conversationState.ente}` : ''}
+            <div class="message-content">${escapeHtml(messageText)}</div>
+        `;
+
+        chatBox.appendChild(userMessage);
+        scrollToBottom();
+    }
+
+    function showBotMessage(messageContent, context) {
+        hideWelcomeMessage();
+
+        const botMessage = document.createElement("div");
+        botMessage.className = "chat-message bot";
+        botMessage.innerHTML = `
+            <div class="message-header">
+                <span class="message-avatar">CB</span>
+                <span class="message-sender">${escapeHtml(botName)}</span>
+                <span class="message-time">${buildTimestamp()}</span>
             </div>
-            <p>Escribe tu consulta y analizaré automáticamente las normativas aplicables.</p>
-        `, null, false);
+            <div class="message-content">${renderAssistantContent(messageContent)}</div>
+            ${context ? `<div class="message-context"><small>${escapeHtml(context)}</small></div>` : ""}
+        `;
 
-        questionTextarea.style.display = 'block';
-        sendButton.style.display = 'flex';
-        questionTextarea.disabled = false;
-        sendButton.disabled = true;
-        questionTextarea.focus();
+        chatBox.appendChild(botMessage);
+        scrollToBottom();
+        return botMessage;
     }
 
-    // === BÚSQUEDA EN INTERNET MEJORADA ===
-    function generarEnlacesBusqueda(consulta, auditoria) {
-        const consultaCodificada = encodeURIComponent(consulta + ' ' + auditoria + ' normativa México');
-
-        const enlaces = {
-            'DOF - Diario Oficial de la Federación': `https://www.dof.gob.mx/busqueda_avanzada.php?q=${consultaCodificada}`,
-            'Cámara de Diputados - Leyes Federales': `http://www.diputados.gob.mx/LeyesBiblio/index.htm`,
-            'SCJN - Suprema Corte de Justicia': `https://www.scjn.gob.mx/busqueda?search=${consultaCodificada}`,
-            'Google - Búsqueda General': `https://www.google.com/search?q=${consultaCodificada}`
-        };
-
-        let html = '<div class="internet-search">';
-        html += '<h4>🔍 Búsquedas Sugeridas en Internet</h4>';
-        html += '<p>Para información más actualizada, puedes consultar estas fuentes oficiales:</p>';
-        html += '<div class="search-links">';
-
-        for (const [nombre, url] of Object.entries(enlaces)) {
-            html += `<a href="${url}" target="_blank" rel="noopener noreferrer" class="search-link">
-                        <span class="search-icon">🌐</span>
-                        <span>${nombre}</span>
-                     </a>`;
-        }
-
-        html += '</div>';
-        html += '<p class="search-note">💡 <em>Estos enlaces te llevarán a fuentes oficiales para verificar la normativa más actualizada</em></p>';
-        html += '</div>';
-
-        return html;
-    }
-
-    // === MANEJO DE ENVÍO MEJORADO ===
-    function enviarPregunta() {
-        const question = questionTextarea.value.trim();
-
-        if (!question || conversationState.isProcessing) {
-            return;
-        }
-
-        // Validación mejorada
-        const errores = validarContenidoTiempoReal(question);
-        if (errores.length > 0) {
-            showBotMessage(`
-                <div class="validation-error">
-                    <p>❌ <strong>Problemas con tu consulta:</strong></p>
-                    <ul>
-                        ${errores.map(error => `<li>${error}</li>`).join('')}
-                    </ul>
-                </div>
-            `, null, true);
-            return;
-        }
-
-        showUserMessage(question);
-        conversationState.isProcessing = true;
-        setUIProcessingState(true);
-
-        const loadingMessageDiv = showBotMessage(`
-            <div class="loading-message">
-                <p>🔍 <strong>Analizando normativas aplicables...</strong></p>
-                <div class="loading-spinner"></div>
-                <p><small>Buscando regulaciones relevantes en ${conversationState.auditoria}</small></p>
-                <p><small>Consultando bases de datos y generando enlaces de búsqueda</small></p>
-            </div>
-        `, null, false);
-
-        enviarSolicitudAnalisis(question, loadingMessageDiv);
-    }
-
-    function validarContenidoTiempoReal(texto) {
-        const errores = [];
-        
-        if (texto.length < 3) {
-            errores.push('La consulta es muy corta (mínimo 3 caracteres)');
-        }
-        
-        if (texto.length > 2000) {
-            errores.push('La consulta es demasiado larga (máximo 2000 caracteres)');
-        }
-        
-        // Detectar preguntas demasiado genéricas
-        const palabras = texto.toLowerCase().split(/\s+/);
-        const palabrasGenericas = ['qué', 'como', 'cuando', 'donde', 'quien', 'cuales', 'que', 'como'];
-        const palabrasGenericasCount = palabras.filter(p => palabrasGenericas.includes(p)).length;
-        
-        if (palabrasGenericasCount > 2 && palabras.length < 10) {
-            errores.push('Consulta muy genérica. Sé más específico para mejores resultados.');
-        }
-        
-        return errores;
-    }
-
-    function setUIProcessingState(processing) {
-        conversationState.isProcessing = processing;
+    function setProcessingState(processing) {
+        state.isProcessing = processing;
         questionTextarea.disabled = processing;
         sendButton.disabled = processing || !questionTextarea.value.trim();
 
         if (processing) {
-            sendButton.innerHTML = '⏳';
-            sendButton.classList.add('loading');
+            sendButton.classList.add("loading");
+            sendButton.innerHTML = '<span class="send-icon">...</span>';
         } else {
-            sendButton.innerHTML = '➤';
-            sendButton.classList.remove('loading');
+            sendButton.classList.remove("loading");
+            sendButton.innerHTML = '<span class="send-icon">➤</span>';
         }
     }
 
-    async function enviarSolicitudAnalisis(question, loadingMessageDiv) {
+    function validarContenido(texto) {
+        const errores = [];
+        const maxLength = chatbotConfig.maxQuestionLength || 2000;
+
+        if (texto.length < 3) {
+            errores.push("La consulta es muy corta.");
+        }
+
+        if (texto.length > maxLength) {
+            errores.push(`La consulta supera el máximo de ${maxLength} caracteres.`);
+        }
+
+        return errores;
+    }
+
+    async function enviarPregunta() {
+        const question = questionTextarea.value.trim();
+        const errores = validarContenido(question);
+
+        if (!question || errores.length > 0) {
+            if (errores.length > 0) {
+                showBotMessage(`
+                    <div class="validation-error">
+                        <p><strong>No pude enviar la consulta.</strong></p>
+                        <p>${errores.join(" ")}</p>
+                    </div>
+                `);
+            }
+            return;
+        }
+
+        showUserMessage(question);
+        setProcessingState(true);
+
+        const loadingMessage = showBotMessage(`
+            <div class="loading-message">
+                <p><strong>Consultando la base normativa...</strong></p>
+                <div class="loading-spinner"></div>
+            </div>
+        `);
+
         const formData = new FormData();
         formData.append("question", question);
-        formData.append("auditoria", conversationState.auditoria);
-        formData.append("ente", conversationState.ente || "No especificado");
+        formData.append("auditoria", hiddenAuditoria?.value || chatbotConfig.defaultAuditoria || "auto");
+        formData.append("ente", hiddenEnte?.value || chatbotConfig.defaultEnte || "No aplica");
 
         try {
-            const respuesta = await reintentos.ejecutarConReintento(
-                () => fetchConTimeout("/ask", {
-                    method: "POST",
-                    body: formData,
-                    timeout: 45000 // 45 segundos
-                }),
-                "análisis normativo"
-            );
-            
-            await procesarRespuestaMejorada(respuesta, loadingMessageDiv, question);
+            const response = await fetchConTimeout("/ask", {
+                method: "POST",
+                body: formData,
+            });
+            const data = await response.json();
+
+            loadingMessage.remove();
+
+            if (data.success) {
+                showBotMessage(data.answer, construirContextoRespuesta(data));
+            } else {
+                showBotMessage(`
+                    <div class="error-message">
+                        <p><strong>No pude procesar la consulta.</strong></p>
+                        <p>${escapeHtml(data.message || "Ocurrió un error inesperado.")}</p>
+                    </div>
+                `);
+            }
         } catch (error) {
-            manejarErrorMejorado(error, loadingMessageDiv, question);
+            loadingMessage.remove();
+            showBotMessage(`
+                <div class="error-message">
+                    <p><strong>Error de conexión.</strong></p>
+                    <p>Intenta nuevamente en unos momentos.</p>
+                </div>
+            `);
+            console.error("Error enviando consulta:", error);
         } finally {
-            finalizarProcesamiento();
+            questionTextarea.value = "";
+            actualizarContadorCaracteres(0);
+            ajustarAlturaTextarea();
+            cerrarSlashMenu();
+            setProcessingState(false);
+            questionTextarea.focus();
         }
     }
 
-    async function fetchConTimeout(url, options = {}) {
-        const { timeout = 45000, ...fetchOptions } = options;
-        
+    function construirContextoRespuesta(data) {
+        const partes = [];
+
+        if (data.auditoria_label) {
+            partes.push(data.auditoria_label);
+        }
+
+        if (Array.isArray(data.auditorias_consultadas) && data.auditorias_consultadas.length > 1) {
+            partes.push(data.auditorias_consultadas.join(" / "));
+        }
+
+        if (typeof data.normativas_encontradas === "number") {
+            const label = data.normativas_encontradas === 1 ? "1 coincidencia" : `${data.normativas_encontradas} coincidencias`;
+            partes.push(label);
+        }
+
+        return partes.join(" • ");
+    }
+
+    async function fetchConTimeout(url, options) {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        const timeoutId = setTimeout(function () {
+            controller.abort();
+        }, 45000);
 
         try {
             const response = await fetch(url, {
-                ...fetchOptions,
-                signal: controller.signal
+                ...options,
+                signal: controller.signal,
             });
-            
+
             clearTimeout(timeoutId);
-            
+
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                throw new Error(`HTTP ${response.status}`);
             }
-            
+
             return response;
         } catch (error) {
             clearTimeout(timeoutId);
@@ -523,158 +516,12 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    async function procesarRespuestaMejorada(response, loadingMessageDiv, preguntaOriginal) {
-        const data = await response.json();
-        loadingMessageDiv.remove();
-
-        if (data.success) {
-            const context = `Contexto: ${conversationState.auditoria} • ${conversationState.ente || 'No aplica'} • Normativas encontradas: ${data.normativas_encontradas} • Tiempo: ${data.tiempo_procesamiento}`;
-
-            let respuestaCompleta = data.answer;
-
-            // ✅ AGREGAR BÚSQUEDA EN INTERNET SI HAY POCOS RESULTADOS
-            if (data.normativas_encontradas < 3) {
-                respuestaCompleta += generarEnlacesBusqueda(preguntaOriginal, conversationState.auditoria);
-            } else {
-                // Agregar enlaces de referencia incluso con buenos resultados
-                respuestaCompleta += `
-                    <div class="internet-search">
-                        <p><strong>🔍 ¿Necesitas más información?</strong></p>
-                        <p>Puedes consultar estas fuentes oficiales para normativas actualizadas:</p>
-                        ${generarEnlacesBusqueda(preguntaOriginal, conversationState.auditoria)}
-                    </div>
-                `;
-            }
-
-            showBotMessage(respuestaCompleta, context, true);
-
-        } else {
-            let mensajeError = `
-                <div class="error-message">
-                    <p>❌ <strong>Error en el análisis</strong></p>
-                    <p>${data.message || 'Error desconocido al procesar tu consulta.'}</p>
-                    <p><small>Por favor, intenta nuevamente o reformula tu pregunta.</small></p>
-                </div>
-            `;
-
-            mensajeError += generarEnlacesBusqueda(preguntaOriginal, conversationState.auditoria);
-
-            showBotMessage(mensajeError, null, true);
-        }
-    }
-
-    function manejarErrorMejorado(error, loadingMessageDiv, preguntaOriginal) {
-        loadingMessageDiv.remove();
-
-        let mensajeError = '';
-        if (error.name === 'AbortError') {
-            mensajeError = `
-                <div class="error-message">
-                    <p>⏰ <strong>Tiempo de espera agotado</strong></p>
-                    <p>El análisis está tomando más tiempo de lo esperado.</p>
-                    <p><small>Puedes intentar con una consulta más específica o usar los enlaces de búsqueda directa.</small></p>
-                </div>
-            `;
-        } else if (error.message.includes('servidor') || error.message.includes('HTTP 5')) {
-            mensajeError = `
-                <div class="error-message">
-                    <p>🔧 <strong>Error del servidor</strong></p>
-                    <p>Estamos experimentando problemas técnicos.</p>
-                    <p><small>Puedes usar los enlaces de búsqueda directa mientras resolvemos el problema.</small></p>
-                </div>
-            `;
-        } else if (error.message.includes('HTTP 4')) {
-            mensajeError = `
-                <div class="error-message">
-                    <p>📝 <strong>Error en la solicitud</strong></p>
-                    <p>Verifica que tu consulta esté bien formulada.</p>
-                    <p><small>Intenta reformular tu pregunta o verifica la conexión.</small></p>
-                </div>
-            `;
-        } else {
-            mensajeError = `
-                <div class="error-message">
-                    <p>🌐 <strong>Error de conexión</strong></p>
-                    <p>Verifica tu conexión a internet e intenta nuevamente.</p>
-                    <p><small>Si el problema persiste, contacta al administrador.</small></p>
-                </div>
-            `;
-        }
-
-        mensajeError += generarEnlacesBusqueda(preguntaOriginal, conversationState.auditoria);
-
-        showBotMessage(mensajeError, null, true);
-        console.error('Error en análisis normativo:', error);
-    }
-
-    function finalizarProcesamiento() {
-        setUIProcessingState(false);
-        questionTextarea.value = "";
-        questionTextarea.style.height = '50px';
-        actualizarContadorCaracteres(0);
-        questionTextarea.focus();
-        scrollToBottom();
-    }
-
-    // === UTILIDADES MEJORADAS ===
-    function scrollToBottom() {
-        setTimeout(() => {
+    function scrollToBottom(behavior = "smooth") {
+        requestAnimationFrame(function () {
             chatBox.scrollTo({
                 top: chatBox.scrollHeight,
-                behavior: 'smooth'
+                behavior,
             });
-        }, 100);
+        });
     }
-
-    function startConversation() {
-        if (welcomeMessage) {
-            welcomeMessage.style.display = "none";
-        }
-
-        const disclaimer = document.querySelector('.disclaimer-message');
-        if (disclaimer) {
-            disclaimer.style.display = 'block';
-        }
-
-        // ✅ CORRECCIÓN: Mensaje de bienvenida con HTML directo (sin markdown)
-        const auditoriaPrompt = showBotMessage(`
-            <div class="welcome-header">
-                <h3>👋 ¡Hola! Soy <strong>Auditel</strong></h3>
-                <p>Tu asistente especializado en <strong>análisis normativo de auditoría</strong></p>
-            </div>
-            <p>Para realizar un análisis preciso de las normativas aplicables, por favor selecciona el tipo de auditoría:</p>
-        `, null, false);
-
-        const auditoriaButtons = createSelectionButtons(
-            [
-                { text: '🏗️ Obra Pública', value: 'Obra Pública' },
-                { text: '💰 Financiera', value: 'Financiera' }
-            ],
-            handleAuditoriaSelection
-        );
-        auditoriaPrompt.appendChild(auditoriaButtons);
-    }
-
-    // === EVENTOS GLOBALES ===
-    document.addEventListener('visibilitychange', function() {
-        if (!document.hidden && conversationState.configuracionCompleta && !conversationState.isProcessing) {
-            questionTextarea.focus();
-        }
-    });
-
-    // Prevenir navegación accidental durante el procesamiento
-    window.addEventListener('beforeunload', function(e) {
-        if (conversationState.isProcessing) {
-            e.preventDefault();
-            e.returnValue = 'Hay una consulta en proceso. ¿Estás seguro de que quieres salir?';
-            return e.returnValue;
-        }
-    });
-
-    // Inicializar la aplicación
-    inicializarAplicacion();
-
-    // === CONSOLA DE DESARROLLO ===
-    console.log('🔍 Auditel v2.1 inicializado correctamente');
-    console.log('📊 Configuración:', window.auditelConfig || 'No disponible');
 });

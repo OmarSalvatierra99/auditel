@@ -3,311 +3,152 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auditel Institucional · Análisis Normativo Inteligente</title>
-    <meta name="description" content="Sistema especializado en análisis normativo automático para auditorías">
+    <title>Chatbot Normativo</title>
+    <meta name="description" content="Interfaz de consulta normativa unificada">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="icon" href="{{ url_for('static', filename='img/ofs_logo.png') }}">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
-<body>
-    <header class="site-header">
-        <div class="header-inner">
-            <img src="{{ url_for('static', filename='img/ofs_logo.png') }}" alt="Logo institucional" class="ofs-logo">
-            <div class="header-text">
-                <p class="eyebrow">Órgano de Fiscalización Superior del Estado de Tlaxcala</p>
-                <h1>Auditel Institucional</h1>
-                <p class="subtitle">Asistente normativo para análisis de auditoría</p>
+<body class="chatbot-page">
+    <header class="site-header chat-header">
+        <div class="header-inner header-inner--chat">
+            <div class="brand-block">
+                <div class="brand-mark">
+                    <img src="{{ url_for('static', filename='img/ofs_logo.png') }}" alt="Logo institucional" class="ofs-logo">
+                </div>
+                <div class="header-text">
+                    <p class="eyebrow">Órgano de Fiscalización Superior del Estado de Tlaxcala</p>
+                    <h1>Chatbot Normativo</h1>
+                    <p class="chat-header-caption">Interfaz unificada para consulta sobre la base normativa.</p>
+                </div>
             </div>
-            <div class="header-badge">
-                <span>Estado</span>
-                <strong>En línea</strong>
+
+            <div class="header-actions header-actions--chat">
+                <div class="user-session-card user-session-card--compact">
+                    <span>Usuario</span>
+                    <strong>{{ session.get('display_name') or session.get('usuario') }}</strong>
+                </div>
+
+                <form action="{{ url_for('logout') }}" method="post" class="top-bar-form">
+                    <button type="submit" class="btn-primary session-action-button logout-button" title="Cerrar sesión">
+                        <span class="button-icon">CS</span>
+                        Cerrar sesión
+                    </button>
+                </form>
             </div>
         </div>
     </header>
 
-    <div class="main-container">
-        <div class="sidebar">
-            <div class="sidebar-header">
-                <h2>Auditel</h2>
-                <p class="sidebar-subtitle">Asistente Normativo</p>
-            </div>
-            
-            <div class="sidebar-section">
-                <h3>Modos de Análisis</h3>
-                <button class="sidebar-button active" data-mode="normativo">
-                    <span class="button-icon">AN</span>
-                    <span class="button-text">Análisis normativo</span>
-                </button>
-                <button class="sidebar-button" data-mode="sugerencias" onclick="mostrarMensajeDesarrollo()">
-                    <span class="button-icon">SA</span>
-                    <span class="button-text">Sugerencias de auditoría</span>
-                    <span class="badge">Próximamente</span>
-                </button>
-            </div>
-
-            <div class="sidebar-section">
-                <h3>Bases de Datos</h3>
-                {% for auditoria, stats in estadisticas.items() %}
-                <div class="database-info">
-                    <div class="db-header">
-                        <span class="db-icon">
-                            {% if auditoria == 'Obra Pública' %}🏗️
-                            {% elif auditoria == 'Financiera' %}💰
-                            {% else %}📁{% endif %}
+    <main class="chatbot-shell">
+        <section class="chatbot-panel">
+            <div class="chatbot-panel-head">
+                <div class="panel-copy">
+                    <p class="panel-kicker">Chat</p>
+                    <h2>Consulta normativa</h2>
+                    <div class="chatbot-notice" role="note" aria-label="Aviso institucional">
+                        <span class="chatbot-notice-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" focusable="false">
+                                <path d="M12 4.75a7.25 7.25 0 1 0 0 14.5a7.25 7.25 0 0 0 0-14.5zm0 1.5a5.75 5.75 0 1 1 0 11.5a5.75 5.75 0 0 1 0-11.5zm-.75 3.1h1.5v4.75h-1.5V9.35zm0 5.95h1.5v1.5h-1.5v-1.5z"/>
+                            </svg>
                         </span>
-                        <span class="db-name">{{ auditoria }}</span>
+                        <span>NO INCLUYE NORMATIVA INTERNA</span>
                     </div>
-                    <div class="db-stats">
-                        <span class="db-records">{{ stats.registros }} registros</span>
-                    </div>
-                    <div class="db-desc">{{ stats.descripcion }}</div>
                 </div>
-                {% endfor %}
+
+                <form action="{{ url_for('clear') }}" method="post" class="clear-chat-form">
+                    <button type="submit" class="clear-chat-button" title="Limpiar chat" aria-label="Limpiar chat">
+                        <svg class="clear-chat-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M9 4h6l1 2h4v2H4V6h4l1-2zm1 6h2v7h-2v-7zm4 0h2v7h-2v-7zM7 10h2v7H7v-7z"/>
+                        </svg>
+                    </button>
+                </form>
             </div>
 
-            <div class="sidebar-footer">
-                <div class="system-status">
-                    <div class="status-indicator active"></div>
-                    <span>Sistema operativo</span>
-                </div>
-                <div class="version">v2.0.0</div>
-            </div>
-        </div>
-
-        <!-- Área de contenido principal mejorada -->
-        <div class="content-area">
-            <div class="top-bar">
-                <div class="top-bar-left">
-                    <h1>Auditel - Análisis Normativo Inteligente</h1>
-                    <p class="top-bar-subtitle">Sistema especializado en detección automática de normativas aplicables para auditoría</p>
-                </div>
-                <div class="top-bar-right">
-                    <div class="top-bar-actions">
-                        <form action="{{ url_for('logout') }}" method="post" class="logout-form top-bar-form">
-                            <button type="submit" class="btn-primary session-action-button logout-button" title="Cerrar sesión institucional">
-                                <span class="button-icon">CS</span>
-                                Cerrar sesión
-                            </button>
-                        </form>
-                        <form action="{{ url_for('clear') }}" method="post" class="clear-form top-bar-form">
-                            <button type="submit" class="clear-button session-action-button" title="Comenzar nueva sesión">
-                                <span class="button-icon">NS</span>
-                                Nueva sesión
-                            </button>
-                        </form>
-                    </div>
-                    <div class="user-session-card">
-                        <div class="user-session-copy">
-                            <span>Sesión activa</span>
-                            <strong>{{ session.get('display_name') or session.get('usuario') }}</strong>
-                        </div>
-                        <p class="user-session-note">Acceso verificado para consulta institucional.</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="chat-container">
-                <div class="chat-box" id="chat-box">
-                    <!-- Disclaimer integrado en el chat -->
-                    <div class="disclaimer-message">
-                        <p><span class="warning-icon">⚠️</span> <strong>Importante:</strong> La información mostrada es generada automáticamente y debe ser verificada. No integra normativa interna específica, reglas de operación y convenios.</p>
-                    </div>
-
+            <div class="chat-container chatbot-chat-container">
+                <div class="chat-box" id="chat-box" aria-live="polite">
                     {% if chat_history %}
                         {% for chat in chat_history %}
                             <div class="chat-message user">
                                 <div class="message-header">
-                                    <span class="message-avatar">👤</span>
+                                    <span class="message-avatar">TU</span>
                                     <span class="message-sender">Tú</span>
                                     <span class="message-time">{{ chat.timestamp|datetimeformat }}</span>
                                 </div>
                                 <div class="message-content">{{ chat.question }}</div>
                             </div>
+
                             <div class="chat-message bot">
                                 <div class="message-header">
-                                    <span class="message-avatar">🔍</span>
-                                    <span class="message-sender">Auditel</span>
+                                    <span class="message-avatar">CB</span>
+                                    <span class="message-sender">Chatbot</span>
                                     <span class="message-time">{{ chat.timestamp|datetimeformat }}</span>
                                 </div>
-                                <div class="message-content">
-                                    {{ chat.answer }}
-                                </div>
+                                <div class="message-content">{{ chat.answer|safe }}</div>
                                 <div class="message-context">
-                                    <small>Contexto: {{ chat.auditoria }}{% if chat.ente %} • {{ chat.ente }}{% endif %} • Normativas: {{ chat.normativas_encontradas }}</small>
+                                    <small>
+                                        {{ chat.auditoria }}
+                                        {% if chat.ente and chat.ente not in ['No aplica', 'No especificado'] %} • {{ chat.ente }}{% endif %}
+                                        {% if chat.normativas_encontradas %} • {{ chat.normativas_encontradas }} coincidencia{% if chat.normativas_encontradas != 1 %}s{% endif %}{% endif %}
+                                    </small>
                                 </div>
                             </div>
                         {% endfor %}
                     {% else %}
-                        <div class="welcome-message">
+                        <div class="welcome-message welcome-message--chatbot">
                             <div class="welcome-header">
-                                <h3>💬 Bienvenido a Auditel v2.0</h3>
-                                <p>Tu asistente especializado en análisis normativo inteligente de auditoría</p>
-                            </div>
-                            <div class="welcome-features">
-                                <div class="feature-card">
-                                    <div class="feature-icon">⚖️</div>
-                                    <div class="feature-text">
-                                        <strong>Análisis normativo automático</strong>
-                                        <span>Detección inteligente de regulaciones aplicables</span>
-                                    </div>
-                                </div>
-                                <div class="feature-card">
-                                    <div class="feature-icon">🔍</div>
-                                    <div class="feature-text">
-                                        <strong>Búsqueda semántica avanzada</strong>
-                                        <span>Motor de búsqueda por similitud conceptual</span>
-                                    </div>
-                                </div>
-                                <div class="feature-card">
-                                    <div class="feature-icon">📋</div>
-                                    <div class="feature-text">
-                                        <strong>Base de datos normativa</strong>
-                                        <span>Actualizada con legislación mexicana vigente</span>
-                                    </div>
-                                </div>
-                                <div class="feature-card">
-                                    <div class="feature-icon">🎯</div>
-                                    <div class="feature-text">
-                                        <strong>Detección de patrones</strong>
-                                        <span>Identificación automática de temas relevantes</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="welcome-stats">
-                                <div class="stat">
-                                    <strong>{{ estadisticas.values()|sum(attribute='registros') }}</strong>
-                                    <span>Normativas indexadas</span>
-                                </div>
-                                <div class="stat">
-                                    <strong>{{ estadisticas|length }}</strong>
-                                    <span>Auditorías disponibles</span>
-                                </div>
-                                <div class="stat">
-                                    <strong>v2.0</strong>
-                                    <span>Motor mejorado</span>
-                                </div>
+                                <h3>Escribe tu consulta para comenzar</h3>
                             </div>
                         </div>
                     {% endif %}
                 </div>
 
-                <div class="input-area">
-                    <div class="institutional-form-head">
-                        <h3>Formulario institucional de consulta</h3>
-                        <p>Captura tu consulta técnica y recibe normativas aplicables con contexto de auditoría.</p>
-                    </div>
+                <div class="input-area chatbot-input-area">
                     <form id="ask-form" action="{{ url_for('ask') }}" method="post" class="ask-form">
-                        <div class="input-wrapper">
-                            <textarea 
-                                name="question" 
-                                placeholder="Escribe tu consulta sobre normativas aplicables aquí... Ej: '¿Qué normativas aplican para licitaciones de obra pública?'" 
+                        <input type="hidden" name="auditoria" value="{{ chatbot_config.default_auditoria }}">
+                        <input type="hidden" name="ente" value="{{ chatbot_config.default_ente }}">
+
+                        <div class="input-wrapper input-wrapper--chatbot">
+                            <textarea
+                                name="question"
+                                placeholder="Escribe tu consulta sobre normativas, irregularidades o conceptos específicos..."
                                 required
                                 maxlength="2000"
-                                aria-label="Consulta sobre normativas"
+                                aria-label="Consulta normativa"
                             ></textarea>
                             <button type="submit" class="send-button" aria-label="Enviar consulta">
                                 <span class="send-icon">➤</span>
                             </button>
                         </div>
-                        <div class="input-footer">
-                            <div class="ai-indicator">
-                                <span class="ai-badge">🤖 IA</span>
-                                <span>Análisis normativo inteligente • Búsqueda semántica</span>
+
+                        <div class="chatbot-context-tools">
+                            <div class="chatbot-context-chip" id="chatbot-context-chip" hidden>
+                                <span class="chatbot-context-chip-label">Contexto</span>
+                                <strong id="chatbot-context-value">Base unificada</strong>
+                                <button type="button" class="chatbot-context-clear" id="chatbot-context-clear" aria-label="Quitar contexto">×</button>
                             </div>
+                            <div class="chatbot-slash-menu" id="chatbot-slash-menu" hidden></div>
+                        </div>
+
+                        <div class="input-footer">
                             <div class="input-hints">
-                                <span class="hint">💡 <strong>Consejos:</strong> Sé específico • Usa términos técnicos • Incluye contextos</span>
-                                <span class="hint">⌨️ <strong>Atajos:</strong> Enter para enviar • Shift+Enter para nueva línea</span>
+                                <span class="hint">Escribe <strong>/</strong> para elegir contexto · Enter para enviar · Shift+Enter para nueva línea</span>
                             </div>
                         </div>
                     </form>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <footer class="site-footer">
-        © Órgano de Fiscalización Superior del Estado de Tlaxcala · Auditel Institucional
-    </footer>
-
-    <!-- Scripts mejorados -->
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+        </section>
+    </main>
 
     <script>
-        // Configuración global mejorada
-        window.auditelConfig = {
-            version: '2.0.0',
+        window.chatbotConfig = {
+            version: '2.2.0',
+            defaultAuditoria: {{ chatbot_config.default_auditoria|tojson }},
+            defaultEnte: {{ chatbot_config.default_ente|tojson }},
             maxQuestionLength: 2000,
-            supportedAuditorias: {{ auditorias_config|tojson }},
-            features: {
-                semanticSearch: true,
-                patternDetection: true,
-                realTimeValidation: true
-            }
+            botName: {{ chatbot_config.bot_name|tojson }},
+            slashCommands: {{ chatbot_config.slash_commands|tojson }}
         };
-
-        function mostrarMensajeDesarrollo() {
-            const chatBox = document.getElementById('chat-box');
-            const mensaje = document.createElement('div');
-            mensaje.className = 'chat-message bot';
-            mensaje.innerHTML = `
-                <div class="message-header">
-                    <span class="message-avatar">🔍</span>
-                    <span class="message-sender">Auditel</span>
-                    <span class="message-time">${new Date().toLocaleTimeString()}</span>
-                </div>
-                <div class="message-content">
-                    <div class="feature-coming-soon">
-                        <p>🚧 <strong>Sugerencias de Auditoría - En Desarrollo</strong></p>
-                        <p>Esta funcionalidad estará disponible en la próxima actualización.</p>
-                        <div class="coming-features">
-                            <div class="feature-item">• Generación automática de programas de auditoría</div>
-                            <div class="feature-item">• Detección de riesgos específicos</div>
-                            <div class="feature-item">• Recomendaciones de procedimientos</div>
-                        </div>
-                        <p>Por ahora, puedes usar el <strong>Modo de Análisis Normativo</strong> para consultar regulaciones aplicables.</p>
-                    </div>
-                </div>
-            `;
-            chatBox.appendChild(mensaje);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        // Procesar markdown en mensajes existentes después de cargar la página
-        document.addEventListener('DOMContentLoaded', function() {
-            if (typeof marked !== 'undefined') {
-                marked.setOptions({
-                    breaks: true,
-                    gfm: true,
-                    sanitize: false,  // ✅ IMPORTANTE: Permitir HTML
-                    headerIds: true
-                });
-
-                // Procesar markdown en todos los mensajes existentes del historial
-                const messageContents = document.querySelectorAll('.message-content');
-                messageContents.forEach(element => {
-                    if (!element.classList.contains('processed')) {
-                        const originalContent = element.innerHTML;
-                        try {
-                            element.innerHTML = marked.parse(originalContent);
-                            element.classList.add('processed');
-                        } catch (error) {
-                            console.error('Error procesando markdown:', error);
-                            element.innerHTML = originalContent;
-                        }
-                    }
-                });
-            }
-
-            // Mejorar accesibilidad
-            const mainContainer = document.querySelector('.main-container');
-            if (mainContainer) {
-                mainContainer.setAttribute('role', 'main');
-                mainContainer.setAttribute('aria-label', 'Sistema de análisis normativo Auditel');
-            }
-
-            console.log('🔍 Auditel v2.0 inicializado correctamente');
-            console.log('📊 Configuración:', window.auditelConfig);
-        });
     </script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>

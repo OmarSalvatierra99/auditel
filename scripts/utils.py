@@ -1,5 +1,18 @@
 # Utility data and helpers for Auditel.
 import json
+import logging
+import re
+from pathlib import Path
+from zipfile import ZipFile
+import xml.etree.ElementTree as ET
+
+logger = logging.getLogger("auditel.utils")
+
+_BASE_DIR = Path(__file__).resolve().parent.parent
+_XML_NS = {
+    "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "p": "http://schemas.openxmlformats.org/package/2006/relationships",
+}
 
 _OBRA_PUBLICA_JSON = r'''[
   {
@@ -298,7 +311,212 @@ _FINANCIERO_JSON = r'''[
   }
 ]'''
 
-AUDITORIA_DATA = {
-    "Obra Pública": json.loads(_OBRA_PUBLICA_JSON),
-    "Financiera": json.loads(_FINANCIERO_JSON),
-}
+
+def _normalizar_valor_excel(valor):
+    """Limpia texto leído desde celdas XLSX."""
+    if valor is None:
+        return ""
+
+    texto = str(valor).replace("\r\n", "\n").replace("\r", "\n")
+    texto = re.sub(r"[ \t]+", " ", texto)
+    texto = re.sub(r"\n{3,}", "\n\n", texto)
+    return texto.strip()
+
+
+def _columna_a_indice(columna):
+    indice = 0
+    for caracter in columna:
+        if caracter.isalpha():
+            indice = indice * 26 + (ord(caracter.upper()) - 64)
+    return indice
+
+
+def _cargar_shared_strings(zip_file):
+    shared_strings = []
+    if "xl/sharedStrings.xml" not in zip_file.namelist():
+        return shared_strings
+
+    root = ET.fromstring(zip_file.read("xl/sharedStrings.xml"))
+    for item in root.findall("a:si", _XML_NS):
+        textos = [texto.text or "" for texto in item.iterfind(".//a:t", _XML_NS)]
+        shared_strings.append("".join(textos))
+
+    return shared_strings
+
+
+def _leer_valor_celda(celda, shared_strings):
+    tipo = celda.get("t")
+    valor = celda.find("a:v", _XML_NS)
+    if valor is None:
+        inline = celda.find("a:is", _XML_NS)
+        if inline is None:
+            return ""
+        textos = [texto.text or "" for texto in inline.iterfind(".//a:t", _XML_NS)]
+        return "".join(textos)
+
+    contenido = valor.text or ""
+    if tipo == "s":
+        try:
+            return shared_strings[int(contenido)]
+        except (ValueError, IndexError):
+            return contenido
+
+    return contenido
+
+
+def _resolver_ruta_hoja(zip_file, sheet_name=None):
+    workbook = ET.fromstring(zip_file.read("xl/workbook.xml"))
+    relaciones = ET.fromstring(zip_file.read("xl/_rels/workbook.xml.rels"))
+    mapa_relaciones = {
+        relacion.get("Id"): relacion.get("Target")
+        for relacion in relaciones.findall("p:Relationship", _XML_NS)
+    }
+
+    hojas = []
+    nodo_hojas = workbook.find("a:sheets", _XML_NS)
+    if nodo_hojas is None:
+        return None
+
+    for hoja in nodo_hojas:
+        nombre = hoja.get("name")
+        relacion_id = hoja.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        destino = mapa_relaciones.get(relacion_id)
+        if nombre and destino:
+            hojas.append((nombre, destino))
+
+    if not hojas:
+        return None
+
+    if sheet_name:
+        for nombre, destino in hojas:
+            if nombre == sheet_name:
+                return f"xl/{destino}" if not destino.startswith("xl/") else destino
+        return None
+
+    nombre, destino = hojas[0]
+    return f"xl/{destino}" if not destino.startswith("xl/") else destino
+
+
+def _leer_filas_xlsx(path, sheet_name=None, start_row=1):
+    """Lee filas no vacías de un archivo XLSX sin dependencias externas."""
+    if not path.exists():
+        logger.warning("Fuente XLSX no encontrada: %s", path)
+        return []
+
+    with ZipFile(path) as zip_file:
+        shared_strings = _cargar_shared_strings(zip_file)
+        sheet_path = _resolver_ruta_hoja(zip_file, sheet_name=sheet_name)
+        if not sheet_path:
+            logger.warning("Hoja no encontrada en %s: %s", path.name, sheet_name)
+            return []
+
+        root = ET.fromstring(zip_file.read(sheet_path))
+        filas = []
+
+        for fila in root.findall(".//a:sheetData/a:row", _XML_NS):
+            numero_fila = int(fila.get("r", "0"))
+            if numero_fila < start_row:
+                continue
+
+            celdas = {}
+            for celda in fila.findall("a:c", _XML_NS):
+                referencia = celda.get("r", "")
+                columna = "".join(caracter for caracter in referencia if caracter.isalpha())
+                indice = _columna_a_indice(columna)
+                celdas[indice] = _normalizar_valor_excel(_leer_valor_celda(celda, shared_strings))
+
+            if not celdas:
+                continue
+
+            max_columna = max(celdas)
+            valores = [celdas.get(indice, "") for indice in range(1, max_columna + 1)]
+
+            if any(valor for valor in valores):
+                filas.append((numero_fila, valores))
+
+        return filas
+
+
+def _cargar_fuente_financiera_excel():
+    """Carga la fuente adicional de conceptos normativos de auditoría financiera."""
+    path = _BASE_DIR / "Financiero" / "Normatividad.xlsx"
+    registros = []
+
+    for _, fila in _leer_filas_xlsx(path, sheet_name="Normatividad", start_row=2):
+        concepto = fila[1] if len(fila) > 1 else ""
+        normativa = fila[2] if len(fila) > 2 else ""
+
+        if not concepto or not normativa:
+            continue
+
+        registros.append({
+            "tipo": concepto,
+            "concepto": concepto,
+            "descripcion_irregularidad": "",
+            "normatividad_local": normativa,
+            "normatividad_federal": "",
+            "origen_fuente": "excel_financiero_conceptos",
+            "archivo_fuente": path.name,
+        })
+
+    return registros
+
+
+def _cargar_fuente_obra_publica_excel():
+    """Carga la fuente adicional de obra pública basada en concepto y normativa."""
+    path = _BASE_DIR / "Obra Pública" / "Base_2025_Entes_Estatales_con_anexo_vinculado.xlsx"
+    registros = []
+
+    for _, fila in _leer_filas_xlsx(path, sheet_name="Irregularidades", start_row=3):
+        tipo = fila[0] if len(fila) > 0 else ""
+        descripcion = fila[1] if len(fila) > 1 else ""
+        concepto = fila[5] if len(fila) > 5 else ""
+        norm_local_admin = fila[10] if len(fila) > 10 else ""
+        norm_local_contrato = fila[11] if len(fila) > 11 else ""
+        norm_federal_admin = fila[15] if len(fila) > 15 else ""
+        norm_federal_contratacion = fila[16] if len(fila) > 16 else ""
+
+        if not tipo and not concepto:
+            continue
+
+        if not any([norm_local_admin, norm_local_contrato, norm_federal_admin, norm_federal_contratacion]):
+            continue
+
+        registros.append({
+            "tipo": tipo,
+            "concepto": concepto,
+            "descripcion_irregularidad": descripcion,
+            "normatividad_local_administracion_directa": norm_local_admin,
+            "normatividad_local_contrato": norm_local_contrato,
+            "normatividad_federal_administracion_directa": norm_federal_admin,
+            "normatividad_federal_contratacion": norm_federal_contratacion,
+            "origen_fuente": "excel_obra_publica_conceptos",
+            "archivo_fuente": path.name,
+        })
+
+    return registros
+
+
+def _construir_auditoria_data():
+    auditoria_data = {
+        "Obra Pública": json.loads(_OBRA_PUBLICA_JSON),
+        "Financiera": json.loads(_FINANCIERO_JSON),
+    }
+
+    fuentes_adicionales = {
+        "Obra Pública": _cargar_fuente_obra_publica_excel(),
+        "Financiera": _cargar_fuente_financiera_excel(),
+    }
+
+    for auditoria, registros in fuentes_adicionales.items():
+        if registros:
+            auditoria_data.setdefault(auditoria, []).extend(registros)
+            logger.info(
+                "Se agregaron %s registros adicionales a %s desde fuentes XLSX",
+                len(registros),
+                auditoria,
+            )
+
+    return auditoria_data
+
+AUDITORIA_DATA = _construir_auditoria_data()

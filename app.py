@@ -4,6 +4,8 @@ import re
 import logging
 import hashlib
 import requests
+import unicodedata
+from html import escape
 from datetime import datetime, timedelta
 from functools import wraps
 from logging.handlers import RotatingFileHandler
@@ -97,7 +99,75 @@ class Config:
     # Motor de búsqueda
     TFIDF_MAX_FEATURES = 5000
     SIMILARITY_THRESHOLD = 0.1
-    TOP_N_RESULTS = 6
+    TOP_N_RESULTS = 3
+
+
+AUTO_AUDITORIA = "auto"
+AUTO_AUDITORIA_LABEL = "Base unificada"
+
+
+PALABRAS_GENERICAS_CONSULTA = {
+    "aplica", "aplican", "aplicable", "aplicables", "articulo", "articulos",
+    "consulta", "consulta", "cual", "cuales", "cuales", "como", "dame",
+    "debe", "debo", "del", "donde", "ejercicio", "ley", "leyes", "mexico",
+    "norma", "normas", "normativa", "normativas", "normatividad",
+    "publico", "publicos", "quiero", "que", "quieres", "relacionada",
+    "relacionado", "sobre", "tema", "tipo",
+}
+
+PALABRAS_GENERICAS_POR_AUDITORIA = {
+    "Obra Pública": {"obra", "obras", "publica", "publicas"},
+    "Financiera": {"financiera", "financiero", "financieras", "financieros"},
+}
+
+
+def obtener_chatbot_config():
+    """Expone el estado público de la integración futura del chatbot."""
+    provider = (os.getenv("CHAT_PROVIDER") or "qwen").strip().lower() or "qwen"
+    provider_label = "Qwen Chat" if provider == "qwen" else provider.replace("_", " ").title()
+    qwen_api_key = (os.getenv("QWEN_API_KEY") or "").strip()
+    qwen_model = (os.getenv("QWEN_MODEL") or "").strip()
+    qwen_ready = bool(qwen_api_key)
+
+    if qwen_ready:
+        status_copy = (
+            "La configuración base ya fue detectada. La interfaz puede conectarse al proveedor cuando se implemente el backend."
+        )
+    else:
+        status_copy = (
+            "La interfaz ya quedó preparada para Qwen. Solo falta agregar la API key cuando termines de crear la cuenta."
+        )
+
+    return {
+        "provider": provider,
+        "provider_label": provider_label,
+        "qwen_ready": qwen_ready,
+        "qwen_model": qwen_model,
+        "status_copy": status_copy,
+        "default_auditoria": AUTO_AUDITORIA,
+        "default_ente": "No aplica",
+        "bot_name": "Chatbot",
+        "slash_commands": [
+            {
+                "value": AUTO_AUDITORIA,
+                "label": AUTO_AUDITORIA_LABEL,
+                "description": "Consulta simultánea en todas las bases disponibles.",
+            },
+            {
+                "value": "Obra Pública",
+                "label": "Obra Pública",
+                "description": "Normativa de obra, contratación y licitaciones.",
+            },
+            {
+                "value": "Financiera",
+                "label": "Financiero",
+                "description": "Normativa contable, presupuestal y de control financiero.",
+            },
+        ],
+    }
+
+
+CHATBOT_CONFIG = obtener_chatbot_config()
 
 app = Flask(__name__)
 app.secret_key = Config.SECRET_KEY
@@ -321,6 +391,7 @@ class MotorBusquedaNormativasMejorado:
         """Crea un documento de texto para búsqueda desde un ítem"""
         campos = [
             item.get('tipo', ''),
+            item.get('concepto', ''),
             item.get('descripcion_irregularidad', ''),
             item.get('categoria', ''),
             item.get('subcategoria', '')
@@ -352,9 +423,15 @@ class MotorBusquedaNormativasMejorado:
 
             # Filtrar por auditoría y obtener top N resultados
             indices_relevantes = []
+            busqueda_unificada = es_busqueda_unificada(auditoria_tipo)
             for idx, similitud in enumerate(similitudes):
-                if (similitud > Config.SIMILARITY_THRESHOLD and 
-                    self.metadatos_unificados[idx]['auditoria'] == auditoria_tipo):
+                if (
+                    similitud > Config.SIMILARITY_THRESHOLD and
+                    (
+                        busqueda_unificada or
+                        self.metadatos_unificados[idx]['auditoria'] == auditoria_tipo
+                    )
+                ):
                     indices_relevantes.append((idx, similitud))
 
             # Ordenar por similitud y tomar top N
@@ -404,7 +481,22 @@ def sanitizar_texto(texto, max_length=2000):
 
 def validar_auditoria_tipo(tipo):
     """Valida que el tipo de auditoría sea válido"""
-    return tipo if tipo in AUDITORIA_CONFIG else None
+    tipo_normalizado = (tipo or AUTO_AUDITORIA).strip()
+    if tipo_normalizado == AUTO_AUDITORIA:
+        return AUTO_AUDITORIA
+    return tipo_normalizado if tipo_normalizado in AUDITORIA_CONFIG else None
+
+
+def es_busqueda_unificada(auditoria_tipo):
+    """Indica si la consulta debe buscar en toda la base."""
+    return auditoria_tipo == AUTO_AUDITORIA
+
+
+def obtener_etiqueta_auditoria(auditoria_tipo):
+    """Devuelve una etiqueta legible para UI e historial."""
+    if es_busqueda_unificada(auditoria_tipo):
+        return AUTO_AUDITORIA_LABEL
+    return auditoria_tipo
 
 def validar_y_sanitizar_entrada(datos_form):
     """Valida y sanitiza todas las entradas del formulario"""
@@ -420,8 +512,8 @@ def validar_y_sanitizar_entrada(datos_form):
         errores.append(f"La pregunta es demasiado larga (máximo {Config.MAX_QUESTION_LENGTH} caracteres)")
     
     # Validar tipo de auditoría
-    auditoria_tipo = datos_form.get("auditoria")
-    if not auditoria_tipo or auditoria_tipo not in AUDITORIA_CONFIG:
+    auditoria_tipo = validar_auditoria_tipo(datos_form.get("auditoria"))
+    if not auditoria_tipo:
         errores.append("Tipo de auditoría inválido")
     
     # Validar ente (opcional)
@@ -532,34 +624,341 @@ def buscar_semanticamente_con_cache(consulta, auditoria_tipo, top_n=5):
 
 def analizar_patrones_consulta(pregunta):
     """Analiza patrones en la consulta para mejorar resultados"""
-    pregunta_lower = pregunta.lower()
+    pregunta_normalizada = normalizar_texto_comparable(pregunta)
 
     patrones = {
-        'licitacion': any(palabra in pregunta_lower for palabra in ['licitación', 'convocatoria', 'proceso selectivo']),
-        'contratacion': any(palabra in pregunta_lower for palabra in ['contratación', 'contrato', 'convenio']),
-        'fiscalizacion': any(palabra in pregunta_lower for palabra in ['fiscalización', 'control', 'verificación']),
-        'presupuesto': any(palabra in pregunta_lower for palabra in ['presupuesto', 'ejercicio', 'gasto']),
-        'transparencia': any(palabra in pregunta_lower for palabra in ['transparencia', 'acceso información', 'rendición'])
+        'licitacion': any(
+            palabra in pregunta_normalizada
+            for palabra in ['licitacion', 'convocatoria', 'adjudicacion', 'proceso selectivo']
+        ),
+        'contratacion': any(
+            palabra in pregunta_normalizada
+            for palabra in ['contratacion', 'contrato', 'convenio']
+        ),
+        'fiscalizacion': any(
+            palabra in pregunta_normalizada
+            for palabra in ['fiscalizacion', 'control', 'verificacion']
+        ),
+        'presupuesto': any(
+            palabra in pregunta_normalizada
+            for palabra in ['presupuesto', 'ejercicio', 'gasto']
+        ),
+        'transparencia': any(
+            palabra in pregunta_normalizada
+            for palabra in ['transparencia', 'acceso informacion', 'rendicion']
+        ),
     }
 
     return {k: v for k, v in patrones.items() if v}
 
+
+def normalizar_texto_comparable(texto):
+    """Normaliza texto para comparaciones semánticas simples."""
+    if not texto:
+        return ""
+
+    texto = unicodedata.normalize("NFKD", str(texto))
+    texto = "".join(caracter for caracter in texto if not unicodedata.combining(caracter))
+    texto = texto.lower()
+    texto = re.sub(r"[^a-z0-9\s]", " ", texto)
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto
+
+
+def extraer_tokens_relevantes(texto, auditoria_tipo=None):
+    """Extrae términos útiles y elimina palabras demasiado genéricas."""
+    texto_normalizado = normalizar_texto_comparable(texto)
+    if not texto_normalizado:
+        return []
+
+    palabras_omitidas = set(PALABRAS_GENERICAS_CONSULTA)
+    palabras_omitidas.update(PALABRAS_GENERICAS_POR_AUDITORIA.get(auditoria_tipo, set()))
+
+    tokens = []
+    for token in texto_normalizado.split():
+        if token in palabras_omitidas:
+            continue
+        if len(token) <= 2 and not token.isdigit():
+            continue
+        tokens.append(token)
+
+    return tokens
+
+
+def preparar_consulta_busqueda(pregunta, auditoria_tipo):
+    """Reduce ruido de la consulta antes de la búsqueda semántica."""
+    return " ".join(extraer_tokens_relevantes(pregunta, auditoria_tipo)).strip()
+
+
+def limpiar_consulta_concepto(pregunta):
+    """Elimina frases comunes para aislar el concepto consultado."""
+    consulta = normalizar_texto_comparable(pregunta)
+    frases_comunes = [
+        "cual es la normativa aplicable para",
+        "cual es la normativa aplicable a",
+        "cual es la normativa de",
+        "cual es la normativa del",
+        "cual es la normatividad de",
+        "cual es la normatividad del",
+        "dame la normativa de",
+        "dame la normatividad de",
+        "normativa aplicable para",
+        "normativa aplicable a",
+        "normativa de",
+        "normativa del",
+        "normatividad de",
+        "normatividad del",
+        "quiero la normativa de",
+        "quiero la normatividad de",
+        "sobre el concepto",
+        "para el concepto",
+        "del concepto",
+        "concepto",
+    ]
+
+    for frase in frases_comunes:
+        consulta = consulta.replace(frase, " ")
+
+    consulta = re.sub(r"\s+", " ", consulta).strip()
+    return consulta
+
+
+def calcular_coincidencia_concepto(consulta, candidato):
+    """Devuelve un puntaje simple de coincidencia entre consulta y concepto/tipo."""
+    consulta_norm = limpiar_consulta_concepto(consulta)
+    candidato_norm = normalizar_texto_comparable(candidato)
+
+    if not consulta_norm or not candidato_norm:
+        return 0
+
+    if consulta_norm == candidato_norm:
+        return 3
+
+    if candidato_norm in consulta_norm or consulta_norm in candidato_norm:
+        return 2
+
+    tokens_consulta = set(consulta_norm.split())
+    tokens_candidato = set(candidato_norm.split())
+    if not tokens_consulta or not tokens_candidato:
+        return 0
+
+    cobertura = len(tokens_consulta & tokens_candidato) / len(tokens_candidato)
+    return 1 if cobertura >= 0.7 else 0
+
+
+def calcular_cobertura_textual(pregunta, normativa, auditoria_tipo):
+    """Mide cuántos términos relevantes de la consulta están en el resultado."""
+    tokens_consulta = set(extraer_tokens_relevantes(pregunta, auditoria_tipo))
+    if not tokens_consulta:
+        return 0.0
+
+    texto_candidato = " ".join(filter(None, [
+        normativa.get('tipo_irregularidad', ''),
+        normativa.get('concepto', ''),
+        normativa.get('descripcion', ''),
+    ]))
+    tokens_candidato = set(extraer_tokens_relevantes(texto_candidato, auditoria_tipo))
+    if not tokens_candidato:
+        return 0.0
+
+    return len(tokens_consulta & tokens_candidato) / len(tokens_consulta)
+
+
+def es_consulta_por_concepto(pregunta, normativas):
+    """Detecta si la consulta apunta directamente a un concepto o tipo específico."""
+    for normativa in normativas[:3]:
+        candidatos = [
+            normativa.get('concepto', ''),
+            normativa.get('tipo_irregularidad', ''),
+        ]
+        if max(calcular_coincidencia_concepto(pregunta, candidato) for candidato in candidatos) > 0:
+            return True
+    return False
+
+
+def filtrar_normativas_por_concepto(pregunta, normativas):
+    """Reduce resultados a los conceptos que coinciden mejor con la consulta."""
+    coincidencias = []
+
+    for normativa in normativas:
+        puntaje = max(
+            calcular_coincidencia_concepto(pregunta, normativa.get('concepto', '')),
+            calcular_coincidencia_concepto(pregunta, normativa.get('tipo_irregularidad', '')),
+        )
+        if puntaje > 0:
+            coincidencias.append((puntaje, normativa))
+
+    if not coincidencias:
+        return normativas
+
+    max_puntaje = max(puntaje for puntaje, _ in coincidencias)
+    filtradas = [
+        normativa for puntaje, normativa in coincidencias
+        if puntaje == max_puntaje
+    ]
+    filtradas.sort(key=lambda item: item['puntaje_similitud'], reverse=True)
+    return filtradas
+
+
+def combinar_normativas_duplicadas(actual, candidata):
+    """Combina duplicados conservando la versión más útil para la respuesta."""
+    criterio_actual = (
+        actual.get('puntaje_similitud', 0),
+        len(actual.get('descripcion', '')),
+        1 if actual.get('origen_fuente') == 'base' else 0,
+        len(actual.get('concepto', '')),
+    )
+    criterio_candidata = (
+        candidata.get('puntaje_similitud', 0),
+        len(candidata.get('descripcion', '')),
+        1 if candidata.get('origen_fuente') == 'base' else 0,
+        len(candidata.get('concepto', '')),
+    )
+
+    preferida = actual if criterio_actual >= criterio_candidata else candidata
+    secundaria = candidata if preferida is actual else actual
+
+    combinada = preferida.copy()
+    combinada['normativas'] = preferida['normativas'].copy()
+
+    for tipo_norma, texto_norma in secundaria.get('normativas', {}).items():
+        if tipo_norma not in combinada['normativas'] and texto_norma:
+            combinada['normativas'][tipo_norma] = texto_norma
+
+    if not combinada.get('descripcion') and secundaria.get('descripcion'):
+        combinada['descripcion'] = secundaria['descripcion']
+
+    if not combinada.get('concepto') and secundaria.get('concepto'):
+        combinada['concepto'] = secundaria['concepto']
+
+    combinada['puntaje_similitud'] = max(
+        actual.get('puntaje_similitud', 0),
+        candidata.get('puntaje_similitud', 0),
+    )
+    combinada['origen_fuente'] = (
+        preferida.get('origen_fuente')
+        if preferida.get('origen_fuente') == secundaria.get('origen_fuente')
+        else 'mixta'
+    )
+
+    return combinada
+
+
+def deduplicar_normativas_por_texto(normativas):
+    """Elimina repeticiones cuando varias fuentes apuntan a la misma normativa."""
+    normativas_unicas = {}
+
+    for normativa in normativas:
+        tipo_normalizado = normalizar_texto_comparable(normativa.get('tipo_irregularidad', ''))
+        firma_normativa = tuple(
+            (tipo_norma, normalizar_texto_comparable(texto_norma))
+            for tipo_norma, texto_norma in sorted(normativa.get('normativas', {}).items())
+        )
+        clave = tipo_normalizado or firma_normativa
+
+        if clave not in normativas_unicas:
+            normativas_unicas[clave] = {
+                **normativa,
+                'normativas': normativa.get('normativas', {}).copy(),
+            }
+            continue
+
+        normativas_unicas[clave] = combinar_normativas_duplicadas(
+            normativas_unicas[clave],
+            normativa,
+        )
+
+    return list(normativas_unicas.values())
+
+
+def filtrar_normativas_por_confianza(pregunta, auditoria_tipo, normativas):
+    """Descarta coincidencias débiles que solo comparten términos genéricos."""
+    if not extraer_tokens_relevantes(pregunta, auditoria_tipo):
+        return []
+
+    filtradas = []
+    for normativa in normativas:
+        puntaje_textual = calcular_cobertura_textual(pregunta, normativa, auditoria_tipo)
+        normativa['puntaje_textual'] = puntaje_textual
+        similitud = normativa.get('puntaje_similitud', 0)
+
+        if (
+            puntaje_textual >= 0.34 or
+            (puntaje_textual >= 0.20 and similitud >= 0.12) or
+            similitud >= 0.28
+        ):
+            filtradas.append(normativa)
+
+    filtradas.sort(
+        key=lambda item: (
+            item.get('puntaje_textual', 0),
+            item.get('puntaje_similitud', 0),
+            len(item.get('descripcion', '')),
+        ),
+        reverse=True,
+    )
+    return filtradas
+
+
+def generar_sugerencias_busqueda(pregunta, auditoria_tipo, patrones):
+    """Crea sugerencias compactas y útiles cuando no hay una coincidencia sólida."""
+    sugerencias = []
+
+    if es_busqueda_unificada(auditoria_tipo):
+        sugerencias.extend([
+            "Prueba con el hallazgo concreto o con el concepto exacto de la irregularidad.",
+            "Si la consulta es de obra pública, menciona términos como conceptos pagados no ejecutados o volúmenes pagados no ejecutados.",
+            "Si la consulta es financiera, intenta con expresiones como no presentan pólizas o ingresos no registrados.",
+        ])
+    elif auditoria_tipo == "Obra Pública":
+        if any(clave in patrones for clave in ("licitacion", "contratacion")):
+            sugerencias.append(
+                "La base actual de Obra Pública responde mejor a irregularidades específicas que a temas generales como licitación."
+            )
+        sugerencias.extend([
+            "Prueba con el hallazgo concreto: conceptos pagados no ejecutados, volúmenes pagados no ejecutados o precios superiores al mercado.",
+            "Si buscas contratación, formula la consulta por el incumplimiento exacto observado y no solo por la etapa general.",
+        ])
+    else:
+        sugerencias.extend([
+            "Prueba con el hallazgo concreto: no presentan pólizas, saldos contrarios a su naturaleza o ingresos no registrados.",
+            "Incluye el documento o incumplimiento específico para mejorar la coincidencia.",
+        ])
+
+    if not extraer_tokens_relevantes(pregunta, auditoria_tipo):
+        sugerencias.insert(
+            0,
+            "Evita consultas demasiado generales; usa el concepto, irregularidad o incumplimiento puntual.",
+        )
+
+    return sugerencias[:3]
+
 def extraer_normativas_relevantes(auditoria_tipo, pregunta):
     """Extrae las normativas relevantes usando búsqueda semántica mejorada con cache"""
-    if auditoria_tipo not in DB_AUDITORIA:
+    if not es_busqueda_unificada(auditoria_tipo) and auditoria_tipo not in DB_AUDITORIA:
+        return []
+
+    contexto_consulta = None if es_busqueda_unificada(auditoria_tipo) else auditoria_tipo
+    consulta_busqueda = preparar_consulta_busqueda(pregunta, contexto_consulta)
+    if not consulta_busqueda:
         return []
 
     # Usar motor semántico con cache
-    resultados_semanticos = buscar_semanticamente_con_cache(pregunta, auditoria_tipo, top_n=8)
+    resultados_semanticos = buscar_semanticamente_con_cache(
+        consulta_busqueda,
+        auditoria_tipo,
+        top_n=12 if es_busqueda_unificada(auditoria_tipo) else 8,
+    )
 
     normativas_encontradas = []
 
     for resultado in resultados_semanticos:
         irregularidad = resultado['item']
         similitud = resultado['similitud']
+        auditoria_resultado = resultado['auditoria']
 
         # Extraer normativas específicas según configuración
-        config_auditoria = AUDITORIA_CONFIG[auditoria_tipo]
+        config_auditoria = AUDITORIA_CONFIG[auditoria_resultado]
         normativas = {}
 
         for campo_normativa in config_auditoria['campos_normativas']:
@@ -570,15 +969,22 @@ def extraer_normativas_relevantes(auditoria_tipo, pregunta):
         if normativas:
             normativas_encontradas.append({
                 'tipo_irregularidad': irregularidad.get('tipo', 'No especificado'),
+                'concepto': irregularidad.get('concepto', ''),
                 'descripcion': irregularidad.get('descripcion_irregularidad', ''),
                 'normativas': normativas,
                 'puntaje_similitud': similitud,
                 'categoria': irregularidad.get('categoria', 'General'),
-                'subcategoria': irregularidad.get('subcategoria', '')
+                'subcategoria': irregularidad.get('subcategoria', ''),
+                'origen_fuente': irregularidad.get('origen_fuente', 'base'),
+                'auditoria': auditoria_resultado,
             })
 
-    # Ordenar por relevancia
-    normativas_encontradas.sort(key=lambda x: x['puntaje_similitud'], reverse=True)
+    normativas_encontradas = deduplicar_normativas_por_texto(normativas_encontradas)
+    normativas_encontradas = filtrar_normativas_por_confianza(
+        pregunta,
+        contexto_consulta,
+        normativas_encontradas,
+    )
     return normativas_encontradas[:Config.TOP_N_RESULTS]
 
 def generar_enlaces_busqueda_internet(pregunta, auditoria_tipo):
@@ -613,35 +1019,53 @@ def generar_analisis_normativo(pregunta, auditoria_tipo, ente_tipo=None):
 
     # Extraer normativas relevantes
     normativas = extraer_normativas_relevantes(auditoria_tipo, pregunta)
+    consulta_por_concepto = es_consulta_por_concepto(pregunta, normativas)
+    etiqueta_auditoria = obtener_etiqueta_auditoria(auditoria_tipo)
+
+    if consulta_por_concepto:
+        normativas = filtrar_normativas_por_concepto(pregunta, normativas)
+        normativas = deduplicar_normativas_por_texto(normativas)
 
     if not normativas:
-        sugerencias = [
-            "Revisa la redacción de tu pregunta e intenta usar términos más específicos",
-            "Verifica que el tipo de auditoría seleccionado sea el correcto",
-            "Intenta incluir palabras clave como 'contratación', 'licitación', 'fiscalización', etc.",
-            "Considera reformular tu pregunta usando términos técnicos de auditoría"
-        ]
+        sugerencias = generar_sugerencias_busqueda(pregunta, auditoria_tipo, patrones)
+        mensaje = "No encontré una coincidencia suficientemente precisa en la base actual."
 
-        # Sugerencias basadas en patrones detectados
-        if patrones:
-            sugerencias.append(f"Detecté interés en: {', '.join(patrones.keys())}. Intenta ser más específico en estos temas.")
+        if es_busqueda_unificada(auditoria_tipo):
+            mensaje = "No encontré una coincidencia suficientemente precisa en la base unificada."
+
+        if auditoria_tipo == "Obra Pública" and any(
+            clave in patrones for clave in ("licitacion", "contratacion")
+        ):
+            mensaje = "No encontré una coincidencia específica para licitación o contratación en la base actual."
 
         return {
             "encontrado": False,
-            "mensaje": "No se encontraron normativas específicas relacionadas con tu consulta.",
+            "mensaje": mensaje,
             "sugerencias": sugerencias,
             "patrones_detectados": patrones,
             "normativas": []
         }
 
     # Construir respuesta estructurada mejorada
+    auditorias_consultadas = sorted({
+        normativa.get("auditoria")
+        for normativa in normativas
+        if normativa.get("auditoria")
+    })
+
     analisis = {
         "encontrado": True,
-        "resumen": f"Se encontraron {len(normativas)} normativas relevantes para tu consulta.",
+        "resumen": (
+            "Se encontró 1 coincidencia relevante para tu consulta."
+            if len(normativas) == 1
+            else f"Se encontraron {len(normativas)} coincidencias relevantes para tu consulta."
+        ),
         "normativas": normativas,
-        "tipo_auditoria": auditoria_tipo,
+        "tipo_auditoria": etiqueta_auditoria,
         "ente_tipo": ente_tipo,
+        "solo_normativa": consulta_por_concepto,
         "patrones_detectados": patrones,
+        "auditorias_consultadas": auditorias_consultadas,
         "estadisticas": {
             "total_encontrado": len(normativas),
             "max_similitud": max(n['puntaje_similitud'] for n in normativas) if normativas else 0,
@@ -652,83 +1076,115 @@ def generar_analisis_normativo(pregunta, auditoria_tipo, ente_tipo=None):
     return analisis
 
 def formatear_respuesta_normativa(analisis):
-    """Formatea la respuesta normativa para mostrar al usuario con mejor markdown"""
+    """Formatea la respuesta normativa con una salida compacta y clara."""
     if not analisis["encontrado"]:
-        sugerencias_html = "\n".join(f"• {sug}" for sug in analisis["sugerencias"])
-
-        mensaje_patrones = ""
-        if analisis.get("patrones_detectados"):
-            patrones = ", ".join(analisis["patrones_detectados"].keys())
-            mensaje_patrones = f"\n\n**🎯 Temas detectados:** {patrones}"
-
+        sugerencias_html = "".join(
+            f"<li>{escape(sugerencia)}</li>"
+            for sugerencia in analisis["sugerencias"]
+        )
         return f"""
-## 🔍 Análisis Normativo - Resultados
+<div class="analysis-response">
+  <div class="analysis-summary">
+    <p class="analysis-kicker">Sin coincidencia precisa</p>
+    <p>{escape(analisis["mensaje"])}</p>
+  </div>
+  <div class="analysis-help">
+    <p><strong>Prueba con:</strong></p>
+    <ul>{sugerencias_html}</ul>
+  </div>
+</div>
+""".strip()
 
-{analisis["mensaje"]}
-{mensaje_patrones}
-
-### 💡 Sugerencias para mejorar tu búsqueda:
-{sugerencias_html}
-"""
-
-    respuesta = f"""
-## 🔍 Análisis Normativo - Resultados
-
-**📊 Resumen:** {analisis["resumen"]}
-**🏛️ Tipo de Auditoría:** {analisis["tipo_auditoria"]}
-**📋 Tipo de Ente:** {analisis["ente_tipo"] or "No especificado"}
-
-**🎯 Patrones detectados:** {', '.join(analisis['patrones_detectados'].keys()) if analisis['patrones_detectados'] else 'No específico'}
-"""
-
-    # Agrupar por categoría si hay variedad
-    categorias = set(n['categoria'] for n in analisis["normativas"])
-
-    if len(categorias) > 1:
-        for categoria in categorias:
-            normativas_categoria = [n for n in analisis["normativas"] if n['categoria'] == categoria]
-            respuesta += f"\n### 📁 {categoria}\n"
-
-            for i, normativa in enumerate(normativas_categoria, 1):
-                respuesta += formatear_normativa_individual(normativa, i)
+    if analisis.get("solo_normativa"):
+        encabezado = "Normativa aplicable"
+        subtitulo = "Encontré una coincidencia directa con el concepto consultado."
     else:
-        # Mostrar todas juntas si son de la misma categoría
-        for i, normativa in enumerate(analisis["normativas"], 1):
-            respuesta += formatear_normativa_individual(normativa, i)
+        encabezado = "Resultado"
+        subtitulo = analisis["resumen"]
 
-    # Estadísticas finales
-    stats = analisis["estadisticas"]
-    respuesta += f"""
----
-**📈 Estadísticas del análisis:**
-• **Total de normativas identificadas:** {stats['total_encontrado']}
-• **Máxima relevancia:** {stats['max_similitud']:.2%}
-• **Categorías diferentes:** {stats['categorias_unicas']}
-• **Patrones detectados:** {len(analisis['patrones_detectados'])}
-"""
+    bloques = [
+        '<div class="analysis-response">',
+        '  <div class="analysis-summary">',
+        f'    <p class="analysis-kicker">{escape(encabezado)}</p>',
+        f'    <p>{escape(subtitulo)}</p>',
+        '  </div>',
+    ]
 
-    return respuesta
+    for i, normativa in enumerate(analisis["normativas"], 1):
+        bloques.append(formatear_normativa_individual(
+            normativa,
+            i,
+            solo_normativa=analisis.get("solo_normativa", False),
+        ))
 
-def formatear_normativa_individual(normativa, numero):
+    bloques.append('</div>')
+    return "\n".join(bloques)
+
+
+def formatear_texto_html(texto):
+    """Escapa texto y respeta saltos de línea básicos."""
+    texto_limpio = (texto or "").strip()
+    if not texto_limpio:
+        return ""
+
+    lineas = [escape(linea.strip()) for linea in texto_limpio.splitlines() if linea.strip()]
+    return "<br>".join(lineas)
+
+
+def obtener_etiqueta_relevancia(normativa):
+    """Devuelve una etiqueta visual corta para la coincidencia."""
+    puntaje_textual = normativa.get('puntaje_textual', 0)
+    similitud = normativa.get('puntaje_similitud', 0)
+
+    if puntaje_textual >= 0.75 or similitud >= 0.45:
+        return "Coincidencia alta", "high"
+    if puntaje_textual >= 0.34 or similitud >= 0.20:
+        return "Coincidencia media", "medium"
+    return "Coincidencia baja", "low"
+
+def formatear_normativa_individual(normativa, numero, solo_normativa=False):
     """Formatea una normativa individual"""
-    relevancia = "🟢 Alta" if normativa['puntaje_similitud'] > 0.5 else "🟡 Media" if normativa['puntaje_similitud'] > 0.2 else "🔴 Baja"
+    auditoria_html = (
+        f'<p class="analysis-meta">{escape(normativa["auditoria"])}</p>'
+        if normativa.get("auditoria")
+        else ""
+    )
 
-    formatted = f"""
-### {numero}. {normativa['tipo_irregularidad']} {relevancia}
+    if solo_normativa:
+        encabezado = f"{numero}. Normativa aplicable"
+        insignia = ""
+        descripcion_html = ""
+        clase_extra = " compact"
+    else:
+        etiqueta, clase_etiqueta = obtener_etiqueta_relevancia(normativa)
+        encabezado = f"{numero}. {escape(normativa['tipo_irregularidad'])}"
+        insignia = f'<span class="analysis-badge {clase_etiqueta}">{etiqueta}</span>'
+        descripcion_html = formatear_texto_html(normativa.get('descripcion'))
+        descripcion_html = (
+            f'<p class="analysis-description">{descripcion_html}</p>'
+            if descripcion_html else ''
+        )
+        clase_extra = ""
 
-**📝 Descripción:** {normativa['descripcion']}
+    normativas_html = "".join(
+        f'<p><strong>{escape(tipo_norma)}:</strong> {formatear_texto_html(texto_norma)}</p>'
+        for tipo_norma, texto_norma in normativa['normativas'].items()
+        if texto_norma
+    )
 
-**⚖️ Normativas aplicables:**
-"""
-
-    for tipo_norma, texto_norma in normativa['normativas'].items():
-        formatted += f"- **{tipo_norma}:** {texto_norma}\n"
-
-    if normativa.get('subcategoria'):
-        formatted += f"\n**🏷️ Subcategoría:** {normativa['subcategoria']}\n"
-
-    formatted += f"\n---\n"
-    return formatted
+    return f"""
+  <section class="analysis-result{clase_extra}">
+    <div class="analysis-result-head">
+      <h4>{encabezado}</h4>
+      {insignia}
+    </div>
+    {auditoria_html}
+    {descripcion_html}
+    <div class="analysis-norms">
+      {normativas_html}
+    </div>
+  </section>
+""".strip()
 
 # =============================================================================
 # FILTROS JINJA2 PERSONALIZADOS
@@ -835,8 +1291,8 @@ def index():
     return render_template(
         "index.html",
         chat_history=chat_history,
-        auditorias_config=AUDITORIA_CONFIG,
-        estadisticas=ESTADISTICAS_DB
+        estadisticas=ESTADISTICAS_DB,
+        chatbot_config=CHATBOT_CONFIG,
     )
 
 @app.route("/ask", methods=["POST"])
@@ -860,25 +1316,21 @@ def ask():
         question = validacion["pregunta"]
         auditoria_tipo = validacion["auditoria"]
         ente_tipo = validacion["ente"]
+        auditoria_label = obtener_etiqueta_auditoria(auditoria_tipo)
 
         # Log de auditoría mejorado
-        logger.info(f"📨 Consulta normativa - Auditoría: {auditoria_tipo}, Ente: {ente_tipo}, Longitud: {len(question)}")
+        logger.info(f"📨 Consulta normativa - Auditoría: {auditoria_label}, Ente: {ente_tipo}, Longitud: {len(question)}")
 
         # GENERAR ANÁLISIS NORMATIVO MEJORADO
         analisis = generar_analisis_normativo(question, auditoria_tipo, ente_tipo)
         answer = formatear_respuesta_normativa(analisis)
-
-        # AGREGAR BÚSQUEDA EN INTERNET SI HAY POCOS RESULTADOS
-        if not analisis["encontrado"] or len(analisis['normativas']) < 3:
-            enlaces_busqueda = generar_enlaces_busqueda_internet(question, auditoria_tipo)
-            answer += enlaces_busqueda
 
         # Guardar en historial mejorado
         chat_history = get_chat_history()
         nuevo_chat = {
             "question": question,
             "answer": answer,
-            "auditoria": auditoria_tipo,
+            "auditoria": auditoria_label,
             "ente": ente_tipo,
             "timestamp": datetime.now().isoformat(),
             "normativas_encontradas": len(analisis['normativas']) if analisis['encontrado'] else 0
@@ -897,6 +1349,8 @@ def ask():
         return jsonify({
             "success": True,
             "answer": answer,
+            "auditoria_label": auditoria_label,
+            "auditorias_consultadas": analisis.get("auditorias_consultadas", []),
             "normativas_encontradas": len(analisis['normativas']) if analisis['encontrado'] else 0,
             "tiempo_procesamiento": f"{tiempo_procesamiento:.2f}s",
             "estadisticas": analisis.get("estadisticas", {})
@@ -977,6 +1431,14 @@ def get_config():
     return jsonify({
         "auditorias": AUDITORIA_CONFIG,
         "estadisticas": ESTADISTICAS_DB,
+        "chatbot": {
+            "provider": CHATBOT_CONFIG["provider"],
+            "provider_label": CHATBOT_CONFIG["provider_label"],
+            "qwen_ready": CHATBOT_CONFIG["qwen_ready"],
+            "qwen_model": CHATBOT_CONFIG["qwen_model"],
+            "default_auditoria": CHATBOT_CONFIG["default_auditoria"],
+            "default_ente": CHATBOT_CONFIG["default_ente"],
+        },
         "limites": {
             "max_question_length": Config.MAX_QUESTION_LENGTH,
             "min_question_length": Config.MIN_QUESTION_LENGTH,
